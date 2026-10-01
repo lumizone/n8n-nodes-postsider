@@ -1,0 +1,21 @@
+{
+  "node": "@postsider/n8n-nodes-postsider.postSider",
+  "nodeVersion": "1.0",
+  "codexVersion": "1.0",
+  "categories": ["Marketing", "Communication"],
+  "subcategories": {
+    "Marketing": ["Social Media"]
+  },
+  "resources": {
+    "credentialDocumentation": [
+      {
+        "url": "https://github.com/lumizone/n8n-nodes-postsider#credentials"
+      }
+    ],
+    "primaryDocumentation": [
+      {
+        "url": "https://github.com/lumizone/n8n-nodes-postsider#readme"
+      }
+    ]
+  }
+}

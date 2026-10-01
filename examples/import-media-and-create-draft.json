@@ -1,0 +1,62 @@
+{
+  "name": "PostSider: Import Media and Create Draft",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual-trigger",
+      "name": "When Clicking Execute Workflow",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "resource": "media",
+        "operation": "importFromUrl",
+        "url": "https://images.unsplash.com/photo-1611162617474-5b21e879e113.jpg"
+      },
+      "id": "import-media",
+      "name": "Import Media",
+      "type": "@postsider/n8n-nodes-postsider.postSider",
+      "typeVersion": 1,
+      "position": [240, 0]
+    },
+    {
+      "parameters": {
+        "resource": "post",
+        "operation": "create",
+        "type": "draft",
+        "channelPosts": {
+          "channelPost": [
+            {
+              "channelId": "REPLACE_WITH_CHANNEL_ID",
+              "content": "A review-first draft created from n8n.",
+              "firstComment": "",
+              "mediaJson": "={{ JSON.stringify([{ id: $json.id, path: $json.path }]) }}",
+              "settingsJson": "{}"
+            }
+          ]
+        },
+        "shortLink": false,
+        "tagsJson": "[]",
+        "idempotencyKey": ""
+      },
+      "id": "create-draft",
+      "name": "Create Draft",
+      "type": "@postsider/n8n-nodes-postsider.postSider",
+      "typeVersion": 1,
+      "position": [500, 0]
+    }
+  ],
+  "connections": {
+    "When Clicking Execute Workflow": {
+      "main": [[{ "node": "Import Media", "type": "main", "index": 0 }]]
+    },
+    "Import Media": {
+      "main": [[{ "node": "Create Draft", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": {},
+  "versionId": "postsider-example-draft-v1"
+}

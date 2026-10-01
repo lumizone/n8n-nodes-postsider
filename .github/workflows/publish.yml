@@ -1,0 +1,45 @@
+name: Publish
+
+on:
+  push:
+    tags:
+      - '*.*.*'
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    name: Publish to npm
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install npm for trusted publishing
+        run: npm install --global npm@11.5.1
+
+      - name: Verify tag matches package version
+        run: |
+          node -e "const p=require('./package.json'); if (process.env.GITHUB_REF_NAME !== p.version) { throw new Error('Tag must equal package version ' + p.version); }"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify release artifact
+        run: npm run verify
+
+      - name: Audit production dependency surface
+        run: npm audit --omit=dev --omit=peer --audit-level=high
+
+      - name: Publish with provenance
+        run: npm run release

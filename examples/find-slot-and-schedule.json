@@ -1,0 +1,62 @@
+{
+  "name": "PostSider: Find Slot and Schedule",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual-trigger",
+      "name": "When Clicking Execute Workflow",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "resource": "scheduling",
+        "operation": "findNextSlot",
+        "channelId": "REPLACE_WITH_CHANNEL_ID"
+      },
+      "id": "find-slot",
+      "name": "Find Next Slot",
+      "type": "@postsider/n8n-nodes-postsider.postSider",
+      "typeVersion": 1,
+      "position": [240, 0]
+    },
+    {
+      "parameters": {
+        "resource": "post",
+        "operation": "create",
+        "type": "schedule",
+        "publishDate": "={{ $json.date }}",
+        "channelPosts": {
+          "channelPost": [
+            {
+              "channelId": "REPLACE_WITH_CHANNEL_ID",
+              "content": "Scheduled into the next free PostSider queue slot.",
+              "firstComment": "",
+              "mediaJson": "[]",
+              "settingsJson": "{}"
+            }
+          ]
+        },
+        "shortLink": false,
+        "tagsJson": "[]"
+      },
+      "id": "schedule-post",
+      "name": "Schedule Post",
+      "type": "@postsider/n8n-nodes-postsider.postSider",
+      "typeVersion": 1,
+      "position": [500, 0]
+    }
+  ],
+  "connections": {
+    "When Clicking Execute Workflow": {
+      "main": [[{ "node": "Find Next Slot", "type": "main", "index": 0 }]]
+    },
+    "Find Next Slot": {
+      "main": [[{ "node": "Schedule Post", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": {},
+  "versionId": "postsider-example-schedule-v1"
+}

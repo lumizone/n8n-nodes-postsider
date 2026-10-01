@@ -1,0 +1,69 @@
+{
+  "name": "@postsider/n8n-nodes-postsider",
+  "version": "0.1.0",
+  "description": "Verified-ready n8n community node for PostSider social media publishing workflows",
+  "license": "MIT",
+  "homepage": "https://postsider.com",
+  "keywords": [
+    "n8n-community-node-package",
+    "postsider",
+    "social-media",
+    "social-media-scheduling",
+    "automation"
+  ],
+  "author": {
+    "name": "Lumi Zone Łukasz Blania",
+    "email": "lukasz@postsider.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lumizone/n8n-nodes-postsider.git"
+  },
+  "bugs": {
+    "url": "https://github.com/lumizone/n8n-nodes-postsider/issues"
+  },
+  "scripts": {
+    "build": "n8n-node build",
+    "build:watch": "tsc --watch",
+    "dev": "n8n-node dev",
+    "lint": "n8n-node lint",
+    "lint:fix": "n8n-node lint --fix",
+    "test": "tsx --test test/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "verify": "npm run lint && npm run typecheck && npm test && npm run build",
+    "release": "n8n-node release",
+    "prepublishOnly": "n8n-node prerelease"
+  },
+  "files": [
+    "dist",
+    "examples",
+    "CHANGELOG.md"
+  ],
+  "n8n": {
+    "n8nNodesApiVersion": 1,
+    "strict": true,
+    "credentials": [
+      "dist/credentials/PostSiderApi.credentials.js"
+    ],
+    "nodes": [
+      "dist/nodes/PostSider/PostSider.node.js"
+    ]
+  },
+  "devDependencies": {
+    "@n8n/node-cli": "^0.23.0",
+    "eslint": "9.39.4",
+    "prettier": "3.8.3",
+    "release-it": "20.2.0",
+    "tsx": "^4.23.15",
+    "typescript": "5.9.3"
+  },
+  "peerDependencies": {
+    "n8n-workflow": "*"
+  },
+  "engines": {
+    "node": ">=20.19.0 <25"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
