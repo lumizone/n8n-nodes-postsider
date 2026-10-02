@@ -17,7 +17,7 @@
       },
       "id": "find-slot",
       "name": "Find Next Slot",
-      "type": "@postsider/n8n-nodes-postsider.postSider",
+      "type": "n8n-nodes-postsider.postSider",
       "typeVersion": 1,
       "position": [240, 0]
     },
@@ -43,7 +43,7 @@
       },
       "id": "schedule-post",
       "name": "Schedule Post",
-      "type": "@postsider/n8n-nodes-postsider.postSider",
+      "type": "n8n-nodes-postsider.postSider",
       "typeVersion": 1,
       "position": [500, 0]
     }

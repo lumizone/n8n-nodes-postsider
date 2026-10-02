@@ -1,5 +1,5 @@
 {
-  "node": "@postsider/n8n-nodes-postsider.postSider",
+  "node": "n8n-nodes-postsider.postSider",
   "nodeVersion": "1.0",
   "codexVersion": "1.0",
   "categories": ["Marketing", "Communication"],

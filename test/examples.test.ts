@@ -9,7 +9,7 @@ test('example workflows remain inactive and use only draft or explicit schedule 
 	for (const workflow of [draftWorkflow, scheduleWorkflow]) {
 		assert.equal(workflow.active, false);
 		for (const node of workflow.nodes) {
-			if (node.type !== '@postsider/n8n-nodes-postsider.postSider') continue;
+			if (node.type !== 'n8n-nodes-postsider.postSider') continue;
 			const type = 'type' in node.parameters ? node.parameters.type : undefined;
 			assert.notEqual(type, 'now');
 		}

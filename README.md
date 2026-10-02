@@ -1,4 +1,4 @@
-# @postsider/n8n-nodes-postsider
+# n8n-nodes-postsider
 
 An n8n community node for building review-first social media publishing workflows with [PostSider](https://postsider.com).
 
@@ -29,7 +29,7 @@ After n8n verification, an instance owner or administrator can search for `PostS
 Until verification is complete, install the package from **Settings > Community nodes** using:
 
 ```text
-@postsider/n8n-nodes-postsider
+n8n-nodes-postsider
 ```
 
 The package has not been published yet. For local development, use `npm run dev`.

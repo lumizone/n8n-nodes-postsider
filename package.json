@@ -1,6 +1,6 @@
 {
-  "name": "@postsider/n8n-nodes-postsider",
-  "version": "0.1.0-bootstrap.0",
+  "name": "n8n-nodes-postsider",
+  "version": "0.1.0-bootstrap.1",
   "description": "Verified-ready n8n community node for PostSider social media publishing workflows",
   "license": "MIT",
   "homepage": "https://postsider.com",

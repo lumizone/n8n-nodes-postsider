@@ -17,7 +17,7 @@
       },
       "id": "import-media",
       "name": "Import Media",
-      "type": "@postsider/n8n-nodes-postsider.postSider",
+      "type": "n8n-nodes-postsider.postSider",
       "typeVersion": 1,
       "position": [240, 0]
     },
@@ -43,7 +43,7 @@
       },
       "id": "create-draft",
       "name": "Create Draft",
-      "type": "@postsider/n8n-nodes-postsider.postSider",
+      "type": "n8n-nodes-postsider.postSider",
       "typeVersion": 1,
       "position": [500, 0]
     }

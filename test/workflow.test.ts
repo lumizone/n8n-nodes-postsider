@@ -26,7 +26,7 @@ async function executeMock(run: MockRun) {
 			baseUrl: 'https://api.postsider.com',
 		}),
 		continueOnFail: () => run.continueOnFail ?? false,
-		getNode: () => ({ name: 'PostSider', type: '@postsider/n8n-nodes-postsider.postSider' }),
+		getNode: () => ({ name: 'PostSider', type: 'n8n-nodes-postsider.postSider' }),
 		helpers: {
 			httpRequestWithAuthentication: async (_credential: string, options: Record<string, unknown>) => {
 				requests.push(options);
