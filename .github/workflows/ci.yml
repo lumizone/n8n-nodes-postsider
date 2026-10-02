@@ -53,4 +53,6 @@ jobs:
         run: npm pack --dry-run
 
       - name: Verify npm publish lifecycle
-        run: RELEASE_MODE=true npm publish --dry-run --access public
+        run: RELEASE_MODE=true npm publish --dry-run --access public --tag "$NPM_CONFIG_TAG"
+        env:
+          NPM_CONFIG_TAG: ${{ vars.NPM_DIST_TAG || 'latest' }}
