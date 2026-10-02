@@ -33,7 +33,7 @@ jobs:
           node -e "const p=require('./package.json'); if (process.env.GITHUB_REF_NAME !== p.version) { throw new Error('Tag must equal package version ' + p.version); }"
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Verify release artifact
         run: npm run verify
