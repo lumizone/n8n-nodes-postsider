@@ -24,6 +24,7 @@ export const resourceProperty: INodeProperties = {
 		{ name: 'Channel', value: 'channel' },
 		{ name: 'Group', value: 'group' },
 		{ name: 'Media', value: 'media' },
+		{ name: 'Policy', value: 'policy' },
 		{ name: 'Post', value: 'post' },
 		{ name: 'Scheduling', value: 'scheduling' },
 	],
@@ -35,10 +36,34 @@ export const operationProperties: INodeProperties[] = [
 		'approval',
 		[
 			{
+				name: 'Approve',
+				value: 'approve',
+				action: 'Approve an approval request',
+				description: 'Approve a pending approval. Needs an API key with the approvals:decide scope.',
+			},
+			{
+				name: 'Get Many',
+				value: 'getMany',
+				action: 'Get many approvals',
+				description: 'List approval requests, newest first',
+			},
+			{
 				name: 'Get Status',
 				value: 'getStatus',
 				action: 'Get approval status',
 				description: 'Retrieve the human approval state for a post',
+			},
+			{
+				name: 'Reject',
+				value: 'reject',
+				action: 'Reject an approval request',
+				description: 'Reject a pending approval. Needs an API key with the approvals:decide scope.',
+			},
+			{
+				name: 'Request',
+				value: 'request',
+				action: 'Request approval for a post',
+				description: 'Ask the approvers to review a post',
 			},
 		],
 		'getStatus',
@@ -59,10 +84,28 @@ export const operationProperties: INodeProperties[] = [
 		'group',
 		[
 			{
+				name: 'Archive',
+				value: 'archive',
+				action: 'Archive a group',
+				description: 'Archive a group (customer workspace). Nothing is deleted.',
+			},
+			{
+				name: 'Create',
+				value: 'create',
+				action: 'Create a group',
+				description: 'Create a group (customer workspace)',
+			},
+			{
 				name: 'Get Many',
 				value: 'getMany',
 				action: 'Get many groups',
 				description: 'Retrieve channel groups',
+			},
+			{
+				name: 'Rename',
+				value: 'update',
+				action: 'Rename a group',
+				description: 'Change the name of a group',
 			},
 		],
 		'getMany',
@@ -78,6 +121,24 @@ export const operationProperties: INodeProperties[] = [
 			},
 		],
 		'importFromUrl',
+	),
+	operation(
+		'policy',
+		[
+			{
+				name: 'Check',
+				value: 'check',
+				action: 'Check a post against policies',
+				description: 'Dry run: report which rules a post would hit, without creating it',
+			},
+			{
+				name: 'Get Many Rules',
+				value: 'getMany',
+				action: 'Get many policy rules',
+				description: 'List the publishing policy rules. Needs the policies:read scope.',
+			},
+		],
+		'check',
 	),
 	operation(
 		'post',
@@ -127,7 +188,7 @@ const postId: INodeProperties = {
 	displayOptions: {
 		show: {
 			resource: ['approval', 'post'],
-			operation: ['get', 'getStatus'],
+			operation: ['get', 'getStatus', 'request'],
 		},
 	},
 };
@@ -143,8 +204,162 @@ const groupFilter = (resource: 'channel' | 'post'): INodeProperties => ({
 	displayOptions: { show: { resource: [resource], operation: ['getMany'] } },
 });
 
+const policyOnly = { resource: ['policy'], operation: ['check'] };
+const groupNameOperations = { resource: ['group'], operation: ['create', 'update'] };
+
 export const fieldProperties: INodeProperties[] = [
 	postId,
+	{
+		displayName: 'Approval ID',
+		name: 'approvalId',
+		type: 'string',
+		required: true,
+		default: '',
+		description: 'ID of the approval request, as returned by Approval > Get Many',
+		displayOptions: { show: { resource: ['approval'], operation: ['approve', 'reject'] } },
+	},
+	{
+		displayName: 'Note',
+		name: 'note',
+		type: 'string',
+		typeOptions: { rows: 2 },
+		default: '',
+		description: 'Optional note stored with the decision (up to 500 characters)',
+		displayOptions: { show: { resource: ['approval'], operation: ['approve', 'reject'] } },
+	},
+	{
+		displayName: 'Status',
+		name: 'approvalStatus',
+		type: 'options',
+		options: [
+			{ name: 'Any', value: '' },
+			{ name: 'Approved', value: 'APPROVED' },
+			{ name: 'Pending', value: 'PENDING' },
+			{ name: 'Rejected', value: 'REJECTED' },
+		],
+		default: 'PENDING',
+		description: 'Only return approvals with this status',
+		displayOptions: { show: { resource: ['approval'], operation: ['getMany'] } },
+	},
+	{
+		displayName: 'Requested Since',
+		name: 'since',
+		type: 'dateTime',
+		default: '',
+		description: 'Only return approvals requested at or after this time',
+		displayOptions: { show: { resource: ['approval'], operation: ['getMany'] } },
+	},
+	{
+		displayName: 'Return All',
+		name: 'returnAll',
+		type: 'boolean',
+		default: false,
+		description: 'Whether to return all results or only up to a given limit',
+		displayOptions: { show: { resource: ['approval'], operation: ['getMany'] } },
+	},
+	{
+		displayName: 'Limit',
+		name: 'limit',
+		type: 'number',
+		typeOptions: { minValue: 1, maxValue: 100 },
+		default: 50,
+		description: 'Max number of results to return',
+		displayOptions: {
+			show: { resource: ['approval'], operation: ['getMany'], returnAll: [false] },
+		},
+	},
+	{
+		displayName: 'Group ID',
+		name: 'targetGroupId',
+		type: 'string',
+		required: true,
+		default: '',
+		description: 'ID of the group, as returned by Group > Get Many',
+		displayOptions: { show: { resource: ['group'], operation: ['update', 'archive'] } },
+	},
+	{
+		displayName: 'Group Name',
+		name: 'groupName',
+		type: 'string',
+		required: true,
+		default: '',
+		description: 'Name of the group (1 to 100 characters)',
+		displayOptions: { show: groupNameOperations },
+	},
+	{
+		displayName: 'Post Type',
+		name: 'policyType',
+		type: 'options',
+		options: [
+			{ name: 'Draft', value: 'draft' },
+			{ name: 'Now', value: 'now' },
+			{ name: 'Schedule', value: 'schedule' },
+		],
+		default: 'draft',
+		description: 'How the post would be created. Nothing is created or published by this check.',
+		displayOptions: { show: policyOnly },
+	},
+	{
+		displayName: 'Publish Date',
+		name: 'policyPublishDate',
+		type: 'dateTime',
+		required: true,
+		default: '',
+		description: 'UTC date and time the post would be scheduled for',
+		displayOptions: { show: { ...policyOnly, policyType: ['schedule'] } },
+	},
+	{
+		displayName: 'Channel Posts',
+		name: 'policyChannelPosts',
+		type: 'fixedCollection',
+		typeOptions: { multipleValues: true },
+		placeholder: 'Add Channel Post',
+		required: true,
+		default: {},
+		description: 'The content to check, one entry for each target channel',
+		displayOptions: { show: policyOnly },
+		options: [
+			{
+				name: 'channelPost',
+				displayName: 'Channel Post',
+				values: [
+					{
+						displayName: 'Channel Name or ID',
+						name: 'channelId',
+						type: 'options',
+						typeOptions: { loadOptionsMethod: 'getChannels' },
+						default: '',
+						required: true,
+						description:
+							'Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>',
+					},
+					{
+						displayName: 'Content',
+						name: 'content',
+						type: 'string',
+						typeOptions: { rows: 5 },
+						default: '',
+						description: 'Caption or post content to check for this channel',
+					},
+					{
+						displayName: 'First Comment',
+						name: 'firstComment',
+						type: 'string',
+						typeOptions: { rows: 2 },
+						default: '',
+						description: 'Optional first comment to check',
+					},
+					{
+						displayName: 'Media JSON',
+						name: 'mediaJson',
+						type: 'json',
+						default: '[]',
+						description: 'Array of media objects, each with ID and path',
+					},
+				],
+			},
+		],
+	},
 	groupFilter('channel'),
 	groupFilter('post'),
 	{

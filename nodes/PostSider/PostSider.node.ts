@@ -12,7 +12,10 @@ import { getChannels, getGroups } from './methods/loadOptions';
 import { postSiderCredentialTest } from './methods/credentialTest';
 import { fieldProperties, operationProperties, resourceProperty } from './resources/descriptions';
 import {
+	MAX_APPROVAL_PAGES,
 	buildOperationRequest,
+	extractList,
+	nextCursor,
 	normalizePostResponse,
 	simplifyPostResponse,
 } from './shared/operations';
@@ -21,10 +24,38 @@ import { postSiderApiRequest } from './shared/transport';
 function getParameters(context: IExecuteFunctions, resource: string, operation: string, index: number) {
 	const get = (name: string, fallback?: unknown) => context.getNodeParameter(name, index, fallback);
 	if (resource === 'channel') return { groupId: get('groupId', '') };
-	if (resource === 'group') return {};
+	if (resource === 'group') {
+		if (operation === 'create') return { groupName: get('groupName') };
+		if (operation === 'update') {
+			return { targetGroupId: get('targetGroupId'), groupName: get('groupName') };
+		}
+		if (operation === 'archive') return { targetGroupId: get('targetGroupId') };
+		return {};
+	}
+	if (resource === 'policy') {
+		if (operation !== 'check') return {};
+		return {
+			type: get('policyType', 'draft'),
+			publishDate: get('policyPublishDate', ''),
+			channelPosts: get('policyChannelPosts'),
+		};
+	}
 	if (resource === 'media') return { url: get('url') };
 	if (resource === 'scheduling') return { channelId: get('channelId') };
-	if (resource === 'approval') return { postId: get('postId') };
+	if (resource === 'approval') {
+		if (operation === 'getMany') {
+			return {
+				status: get('approvalStatus', ''),
+				since: get('since', ''),
+				returnAll: get('returnAll', false),
+				limit: get('limit', 50),
+			};
+		}
+		if (operation === 'approve' || operation === 'reject') {
+			return { approvalId: get('approvalId'), note: get('note', '') };
+		}
+		return { postId: get('postId') };
+	}
 	if (resource === 'post' && operation === 'create') {
 		return {
 			type: get('type'),
@@ -90,6 +121,9 @@ function prepareOutput(
 			},
 		];
 	}
+	if (resource === 'policy' && operation === 'getMany') {
+		return extractList(normalized).map(asObject);
+	}
 	if (Array.isArray(normalized)) return normalized.map(asObject);
 	return [asObject(normalized)];
 }
@@ -137,12 +171,40 @@ export class PostSider implements INodeType {
 					index,
 				);
 
-				const response = await (postSiderApiRequest<unknown>).call(
-					this,
-					request.method,
-					request.endpoint,
-					request.input,
-				);
+				let response: unknown;
+				if (resource === 'approval' && operation === 'getMany') {
+					const approvals: unknown[] = [];
+					let cursor: string | undefined;
+					const pages = parameters.returnAll ? MAX_APPROVAL_PAGES : 1;
+					for (let page = 0; page < pages; page++) {
+						const pageRequest = cursor
+							? buildOperationRequest(
+									resource,
+									operation,
+									{ ...parameters, cursor },
+									this.getExecutionId(),
+									index,
+								)
+							: request;
+						const pageResponse = await (postSiderApiRequest<unknown>).call(
+							this,
+							pageRequest.method,
+							pageRequest.endpoint,
+							pageRequest.input,
+						);
+						approvals.push(...extractList(pageResponse));
+						cursor = nextCursor(pageResponse);
+						if (!cursor) break;
+					}
+					response = approvals;
+				} else {
+					response = await (postSiderApiRequest<unknown>).call(
+						this,
+						request.method,
+						request.endpoint,
+						request.input,
+					);
+				}
 				const simplify = Boolean(parameters.simplify ?? false);
 				const output = prepareOutput(resource, operation, response, simplify);
 				returnData.push(

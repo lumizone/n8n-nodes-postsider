@@ -1,0 +1,112 @@
+{
+  "name": "PostSider: Approval Request Handler",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Approval request handler\nSet a PostSider webhook subscription for `approval.requested` pointing at this Webhook node's production URL, then set the env var `POSTSIDER_WEBHOOK_SECRET` to the subscription secret.\n\nThe Approve and Reject nodes are DISABLED. Enable one only after you have decided who or what may decide. They need an API key with the `approvals:decide` scope (never granted by default). Do not wire them to unreviewed AI output.",
+        "height": 240,
+        "width": 420
+      },
+      "id": "note",
+      "name": "Read Me",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [0, -300]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "postsider-approval",
+        "options": {
+          "rawBody": true
+        }
+      },
+      "id": "webhook",
+      "name": "PostSider Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "webhookId": "00000000-0000-4000-8000-000000000001"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Verifies X-Postsider-Signature: sha256=<hex HMAC of \"<timestamp>.<raw body>\">.\nconst crypto = require('crypto');\nconst secret = $env.POSTSIDER_WEBHOOK_SECRET;\nif (!secret) throw new Error('Set POSTSIDER_WEBHOOK_SECRET to the webhook subscription secret');\nconst item = $input.first();\nconst headers = item.json.headers || {};\nconst timestamp = String(headers['x-postsider-timestamp'] || '');\nconst signature = String(headers['x-postsider-signature'] || '');\nconst raw = item.binary && item.binary.data\n  ? Buffer.from(item.binary.data.data, 'base64').toString('utf8')\n  : '';\nconst seconds = Number(timestamp);\nconst ms = seconds < 1e12 ? seconds * 1000 : seconds;\nif (!Number.isFinite(ms) || Math.abs(Date.now() - ms) > 5 * 60 * 1000) {\n  throw new Error('Rejected: timestamp missing or older than 5 minutes');\n}\nconst expected = 'sha256=' + crypto.createHmac('sha256', secret).update(timestamp + '.' + raw).digest('hex');\nconst a = Buffer.from(expected);\nconst b = Buffer.from(signature);\nif (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {\n  throw new Error('Rejected: invalid signature');\n}\nreturn [{ json: { event: headers['x-postsider-event'], eventId: headers['x-postsider-event-id'], payload: JSON.parse(raw) } }];"
+      },
+      "id": "verify-signature",
+      "name": "Verify Signature",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [260, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "strict", "version": 2 },
+          "conditions": [
+            {
+              "id": "is-approval-requested",
+              "leftValue": "={{ $json.event }}",
+              "rightValue": "approval.requested",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "is-requested",
+      "name": "Is Approval Requested",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [520, 0]
+    },
+    {
+      "parameters": {
+        "resource": "approval",
+        "operation": "approve",
+        "approvalId": "={{ $json.payload.approvalId }}",
+        "note": "Approved by n8n workflow"
+      },
+      "id": "approve",
+      "name": "Approve",
+      "type": "n8n-nodes-postsider.postSider",
+      "typeVersion": 1,
+      "position": [800, -100],
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "resource": "approval",
+        "operation": "reject",
+        "approvalId": "={{ $json.payload.approvalId }}",
+        "note": "Rejected by n8n workflow"
+      },
+      "id": "reject",
+      "name": "Reject",
+      "type": "n8n-nodes-postsider.postSider",
+      "typeVersion": 1,
+      "position": [800, 100],
+      "disabled": true
+    }
+  ],
+  "connections": {
+    "PostSider Webhook": {
+      "main": [[{ "node": "Verify Signature", "type": "main", "index": 0 }]]
+    },
+    "Verify Signature": {
+      "main": [[{ "node": "Is Approval Requested", "type": "main", "index": 0 }]]
+    },
+    "Is Approval Requested": {
+      "main": [
+        [
+          { "node": "Approve", "type": "main", "index": 0 },
+          { "node": "Reject", "type": "main", "index": 0 }
+        ],
+        []
+      ]
+    }
+  },
+  "active": false,
+  "settings": {},
+  "versionId": "postsider-example-approval-v1"
+}

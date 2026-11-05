@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.2.0 - Unreleased
+
+### Added
+
+- Approval resource: Request, Get Many (status, since, limit, Return All with cursor paging up to 10 pages), Approve and Reject (optional note, execution-scoped idempotency key). Approve and Reject need an API key with the `approvals:decide` scope, which is never granted by default.
+- Policy resource: Check (dry run of a post against the publishing rules, creates nothing) and Get Many Rules.
+- Group operations: Create, Rename and Archive (customer workspaces).
+- Example workflow `examples/approval-notify-slack.json`: webhook, HMAC signature verification, event filter, and disabled Approve/Reject nodes.
+- Operations that need the new server endpoints return the server's error on older PostSider versions; existing operations are unchanged.
+
 ## 0.1.0 - Unreleased
 
 ### Added
