@@ -144,7 +144,7 @@ Request, Get Many and Get Status are safe reads and requests. **Approve** and **
 
 > Do not wire Approve or Reject to unreviewed AI output or to an unauthenticated webhook. Use a dedicated API key with only `approvals:decide`, keep the example's signature check, and decide only from a source you trust. PostSider can block an API key from approving a post it requested itself.
 
-Each decision sends the header `Idempotency-Key: n8n:<executionId>:item:<index>`, so an n8n retry does not decide twice. **Get Many** with **Return All** follows `nextCursor` for up to 10 pages (1000 approvals).
+The node reads the approval first and sends `expectStage` (the current stage position), so a stale run gets a 409 instead of deciding a later stage. Each decision sends an `Idempotency-Key` built from the execution ID, the node name, the item index and a digest of the approval, decision, note, stage position and request time, so an n8n retry does not decide twice, a later stage or re-requested approval never replays an older answer, and two Approve nodes never collide. If the read fails, a random per-call key is used and `expectStage` is omitted. **Get Many** with **Return All** follows `nextCursor` for up to 10 pages (1000 approvals).
 
 ## Example workflows
 

@@ -255,28 +255,70 @@ test('approval request posts to request-approval without a body', () => {
 	);
 });
 
-test('approval approve and reject send the note and an execution-scoped idempotency key', () => {
+const BOUND = { stagePosition: 2, requestedAt: '2026-11-04T10:00:00.000Z', nodeName: 'Approve Post' };
+
+function decisionKey(
+	decision: string,
+	extra: Record<string, unknown> = {},
+	exec = 'exec_9',
+	item = 3,
+): string {
+	const request = buildOperationRequest(
+		'approval',
+		decision,
+		{ approvalId: 'appr/1', note: 'Looks good', ...BOUND, ...extra },
+		exec,
+		item,
+	);
+	return String((request.input.headers as Record<string, string>)['Idempotency-Key']);
+}
+
+test('approval approve and reject send note and expectStage with a stage bound key', () => {
 	for (const decision of ['approve', 'reject']) {
-		assert.deepEqual(
-			buildOperationRequest(
-				'approval',
-				decision,
-				{ approvalId: 'appr/1', note: '  Looks good  ' },
-				'exec_9',
-				3,
-			),
-			{
-				method: 'POST',
-				endpoint: `/approvals/appr%2F1/${decision}`,
-				input: {
-					body: { note: 'Looks good' },
-					headers: { 'Idempotency-Key': 'n8n:exec_9:item:3' },
-				},
-			},
+		const request = buildOperationRequest(
+			'approval',
+			decision,
+			{ approvalId: 'appr/1', note: '  Looks good  ', ...BOUND },
+			'exec_9',
+			3,
 		);
+		assert.equal(request.method, 'POST');
+		assert.equal(request.endpoint, `/approvals/appr%2F1/${decision}`);
+		assert.deepEqual(request.input.body, { note: 'Looks good', expectStage: 2 });
+		const key = decisionKey(decision);
+		assert.match(key, /^n8n:exec_9:Approve_Post:item:3:[0-9a-f]{32}$/);
+		assert.deepEqual(request.input.headers, { 'Idempotency-Key': key });
 	}
-	const noNote = buildOperationRequest('approval', 'approve', { approvalId: 'a1' }, 'e', 0);
-	assert.deepEqual(noNote.input.body, {});
+	const noNote = buildOperationRequest('approval', 'approve', { approvalId: 'a1', ...BOUND }, 'e', 0);
+	assert.deepEqual(noNote.input.body, { expectStage: 2 });
+});
+
+test('approval decision key changes with stage, round, approval, node, item, decision and note', () => {
+	const base = decisionKey('approve');
+	assert.equal(base, decisionKey('approve'));
+	assert.notEqual(base, decisionKey('approve', { stagePosition: 3 }));
+	assert.notEqual(base, decisionKey('approve', { requestedAt: '2026-11-05T09:00:00.000Z' }));
+	assert.notEqual(base, decisionKey('approve', { approvalId: 'other' }));
+	assert.notEqual(base, decisionKey('approve', { nodeName: 'Approve Post 2' }));
+	assert.notEqual(base, decisionKey('approve', {}, 'exec_9', 4));
+	assert.notEqual(base, decisionKey('reject'));
+	assert.notEqual(base, decisionKey('approve', { note: 'other' }));
+});
+
+test('two Approve nodes in one execution on different approvals never share a key', () => {
+	const a = decisionKey('approve', { approvalId: 'one', nodeName: 'Approve A' }, 'exec_9', 0);
+	const b = decisionKey('approve', { approvalId: 'two', nodeName: 'Approve B' }, 'exec_9', 0);
+	assert.notEqual(a, b);
+});
+
+test('approval decision without a stage binding uses a random per-call key and no expectStage', () => {
+	const request = () =>
+		buildOperationRequest('approval', 'approve', { approvalId: 'a1', nodeName: 'N' }, 'exec_9', 0);
+	const k1 = (request().input.headers as Record<string, string>)['Idempotency-Key'];
+	const k2 = (request().input.headers as Record<string, string>)['Idempotency-Key'];
+	assert.notEqual(k1, k2);
+	assert.match(k1, /^n8n:exec_9:N:item:0:nonce-[0-9a-f-]+$/);
+	assert.deepEqual(request().input.body, {});
 });
 
 test('approval decisions validate the id and the note length', () => {
@@ -297,7 +339,7 @@ test('approval decisions validate the id and the note length', () => {
 		/Note must be at most 500/,
 	);
 	assert.throws(
-		() => buildOperationRequest('approval', 'approve', { approvalId: 'a' }, 'bad exec id', 0),
+		() => buildOperationRequest('approval', 'approve', { approvalId: 'a', ...BOUND }, 'bad exec id', 0),
 		/Idempotency Key/,
 	);
 });
@@ -344,6 +386,16 @@ test('list helpers read the item array and the next cursor', () => {
 	assert.deepEqual(extractList([{ id: 1 }]), [{ id: 1 }]);
 	assert.deepEqual(extractList({ approvals: [{ id: 2 }], nextCursor: 'n' }), [{ id: 2 }]);
 	assert.deepEqual(extractList({ nothing: true }), []);
+	// Real server shapes (backend controller specs).
+	assert.deepEqual(
+		extractList({ policies: [{ id: 'r1', name: 'No links', effect: 'BLOCK' }] }),
+		[{ id: 'r1', name: 'No links', effect: 'BLOCK' }],
+	);
+	assert.deepEqual(extractList({ customers: [{ id: 'c1', name: 'Acme', channelCount: 2 }] }), [
+		{ id: 'c1', name: 'Acme', channelCount: 2 },
+	]);
+	assert.deepEqual(extractList({ flows: [{ id: 'f1' }] }), [{ id: 'f1' }]);
+	assert.deepEqual(extractList({ approvals: [], nextCursor: null }), []);
 	assert.deepEqual(extractList(null), []);
 	assert.equal(nextCursor({ nextCursor: 'n' }), 'n');
 	assert.equal(nextCursor({ nextCursor: null }), undefined);

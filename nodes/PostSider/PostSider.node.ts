@@ -14,7 +14,9 @@ import { fieldProperties, operationProperties, resourceProperty } from './resour
 import {
 	MAX_APPROVAL_PAGES,
 	buildOperationRequest,
+	buildApprovalReadRequest,
 	extractList,
+	readDecisionBinding,
 	nextCursor,
 	normalizePostResponse,
 	simplifyPostResponse,
@@ -163,6 +165,23 @@ export class PostSider implements INodeType {
 				const resource = this.getNodeParameter('resource', index) as string;
 				const operation = this.getNodeParameter('operation', index) as string;
 				const parameters = getParameters(this, resource, operation, index) as IDataObject;
+				if (resource === 'approval' && (operation === 'approve' || operation === 'reject')) {
+					parameters.nodeName = this.getNode().name;
+					// Validate before any network call; then bind the decision to the
+					// current stage and round. A failed read falls back to a random key.
+					const read = buildApprovalReadRequest(parameters);
+					try {
+						const current = await (postSiderApiRequest<unknown>).call(
+							this,
+							read.method,
+							read.endpoint,
+							read.input,
+						);
+						Object.assign(parameters, readDecisionBinding(current) ?? {});
+					} catch {
+						// no binding
+					}
+				}
 				const request = buildOperationRequest(
 					resource,
 					operation,

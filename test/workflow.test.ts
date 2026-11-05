@@ -139,23 +139,64 @@ test('workflow get many returns simplified linked post items', async () => {
 	assert.deepEqual(result.output[0].pairedItem, { item: 0 });
 });
 
-test('workflow approve sends one idempotent decision per item', async () => {
+const APPROVAL_ITEM = {
+	id: 'appr_1',
+	postId: 'p1',
+	status: 'PENDING',
+	note: null,
+	requestedAt: '2026-11-04T10:00:00.000Z',
+	resolvedAt: null,
+	stage: { position: 2, total: 3, name: 'Legal' },
+	stages: [],
+	flow: null,
+	channel: { id: 'c1', name: 'Page', providerIdentifier: 'x' },
+	preview: 'Hello',
+};
+
+test('workflow approve reads the approval, then sends one stage bound decision per item', async () => {
 	const result = await executeMock({
 		itemCount: 2,
 		parameters: { resource: 'approval', operation: 'approve', approvalId: 'appr_1', note: 'ok' },
-		responses: [{ id: 'appr_1', status: 'APPROVED' }, { id: 'appr_1', status: 'APPROVED' }],
+		responses: [
+			APPROVAL_ITEM,
+			{ id: 'appr_1', status: 'PENDING', changed: true },
+			APPROVAL_ITEM,
+			{ id: 'appr_1', status: 'PENDING', changed: true },
+		],
 	});
-	assert.equal(result.requests.length, 2);
+	assert.equal(result.requests.length, 4);
 	assert.deepEqual(
-		result.requests.map((request) => [request.method, request.url, request.body, request.headers]),
-		[0, 1].map((item) => [
-			'POST',
-			'https://api.postsider.com/public/v1/approvals/appr_1/approve',
-			{ note: 'ok' },
-			{ 'Idempotency-Key': `n8n:execution_123:item:${item}` },
-		]),
+		[result.requests[0].method, result.requests[0].url],
+		['GET', 'https://api.postsider.com/public/v1/approvals/appr_1'],
+	);
+	const posts = [result.requests[1], result.requests[3]];
+	for (const [item, request] of posts.entries()) {
+		assert.equal(request.method, 'POST');
+		assert.equal(request.url, 'https://api.postsider.com/public/v1/approvals/appr_1/approve');
+		assert.deepEqual(request.body, { note: 'ok', expectStage: 2 });
+		const key = String((request.headers as Record<string, string>)['Idempotency-Key']);
+		assert.match(key, new RegExp(`^n8n:execution_123:PostSider:item:${item}:[0-9a-f]{32}$`));
+	}
+	assert.notEqual(
+		(posts[0].headers as Record<string, string>)['Idempotency-Key'],
+		(posts[1].headers as Record<string, string>)['Idempotency-Key'],
 	);
 	assert.deepEqual(result.output.map((entry) => entry.pairedItem), [{ item: 0 }, { item: 1 }]);
+});
+
+test('workflow approve falls back to a nonce key without expectStage when the read fails', async () => {
+	const result = await executeMock({
+		parameters: { resource: 'approval', operation: 'approve', approvalId: 'appr_1' },
+		responses: [new Error('boom'), { status: 'APPROVED' }],
+	});
+	assert.equal(result.requests.length, 2);
+	const post = result.requests[1];
+	assert.equal(post.method, 'POST');
+	assert.deepEqual(post.body, {});
+	assert.match(
+		String((post.headers as Record<string, string>)['Idempotency-Key']),
+		/^n8n:execution_123:PostSider:item:0:nonce-/,
+	);
 });
 
 test('workflow approve reports a missing approval id as an item error', async () => {
@@ -254,7 +295,14 @@ test('workflow group create and archive use the customer routes', async () => {
 test('workflow policy get many lists rules as items', async () => {
 	const result = await executeMock({
 		parameters: { resource: 'policy', operation: 'getMany' },
-		responses: [[{ id: 'p1' }, { id: 'p2' }]],
+		responses: [
+			{
+				policies: [
+					{ id: 'p1', name: 'No links', enabled: true, priority: 100, condition: 'CONTAINS_LINK', effect: 'BLOCK' },
+					{ id: 'p2', name: 'Review', enabled: true, priority: 200, condition: 'ALWAYS', effect: 'REQUIRE_APPROVAL' },
+				],
+			},
+		],
 	});
 	assert.deepEqual(result.output.map((entry) => entry.json.id), ['p1', 'p2']);
 });

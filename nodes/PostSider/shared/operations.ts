@@ -1,3 +1,5 @@
+import { createHash, randomUUID } from 'node:crypto';
+
 import type { IDataObject, IHttpRequestMethods } from 'n8n-workflow';
 
 import {
@@ -134,12 +136,6 @@ const DEFAULT_APPROVAL_LIMIT = 25;
 const MAX_APPROVAL_LIMIT = 100;
 export const MAX_APPROVAL_PAGES = 10;
 
-function executionKey(executionId: string, itemIndex: number): IDataObject {
-	return {
-		'Idempotency-Key': validateIdempotencyKey(`n8n:${executionId}:item:${itemIndex}`),
-	};
-}
-
 function groupName(parameters: IDataObject): string {
 	const name = requiredString(parameters, 'groupName', 'Group Name');
 	if (name.length > MAX_NAME_LENGTH) {
@@ -148,7 +144,45 @@ function groupName(parameters: IDataObject): string {
 	return name;
 }
 
-function buildDecisionRequest(
+function nodeToken(nodeName: unknown): string {
+	return String(nodeName ?? '')
+		.replace(/[^A-Za-z0-9._-]/g, '_')
+		.slice(0, 40);
+}
+
+/**
+ * The key is bound to the execution, the node, the item, the approval, the
+ * decision, the stage position and the request time. A different stage or a
+ * re-requested approval never replays an older answer, and two Approve nodes in
+ * one execution never collide. Without a stage binding (the read failed) a
+ * random per-call nonce replaces the digest instead of a stale deterministic key.
+ */
+function decisionKey(
+	decision: string,
+	parameters: IDataObject,
+	approvalId: string,
+	note: string,
+	executionId: string,
+	itemIndex: number,
+	position: number | undefined,
+	requestedAt: string | undefined,
+): IDataObject {
+	const token = nodeToken(parameters.nodeName);
+	const tail =
+		position === undefined
+			? `nonce-${randomUUID()}`
+			: createHash('sha256')
+					.update(JSON.stringify([approvalId, decision, note, position, requestedAt]))
+					.digest('hex')
+					.slice(0, 32);
+	return {
+		'Idempotency-Key': validateIdempotencyKey(
+			`n8n:${executionId}:${token ? `${token}:` : ''}item:${itemIndex}:${tail}`,
+		),
+	};
+}
+
+export function buildDecisionRequest(
 	decision: 'approve' | 'reject',
 	parameters: IDataObject,
 	executionId: string,
@@ -159,14 +193,59 @@ function buildDecisionRequest(
 	if (note.length > MAX_NOTE_LENGTH) {
 		throw new Error(`Note must be at most ${MAX_NOTE_LENGTH} characters`);
 	}
+	const position = parameters.stagePosition;
+	const requestedAt = parameters.requestedAt;
+	const bound =
+		typeof position === 'number' &&
+		Number.isInteger(position) &&
+		position >= 1 &&
+		typeof requestedAt === 'string' &&
+		requestedAt !== '';
 	return {
 		method: 'POST',
 		endpoint: `/approvals/${id}/${decision}`,
 		input: {
-			body: note ? { note } : {},
-			headers: executionKey(executionId, itemIndex),
+			body: { ...(note ? { note } : {}), ...(bound ? { expectStage: position } : {}) },
+			headers: decisionKey(
+				decision,
+				parameters,
+				requiredString(parameters, 'approvalId', 'Approval ID'),
+				note,
+				executionId,
+				itemIndex,
+				bound ? position : undefined,
+				bound ? requestedAt : undefined,
+			),
 		},
 	};
+}
+
+/** GET /approvals/:id, used to bind a decision to the current stage and round. */
+export function buildApprovalReadRequest(parameters: IDataObject): OperationRequest {
+	return {
+		method: 'GET',
+		endpoint: `/approvals/${encodedId(parameters, 'approvalId', 'Approval ID')}`,
+		input: {},
+	};
+}
+
+/** Stage position and requestedAt from a GET /approvals/:id response, if usable. */
+export function readDecisionBinding(
+	response: unknown,
+): { stagePosition: number; requestedAt: string } | undefined {
+	if (!response || typeof response !== 'object') return undefined;
+	const item = response as { requestedAt?: unknown; stage?: { position?: unknown } | null };
+	const position = item.stage?.position;
+	if (
+		typeof position === 'number' &&
+		Number.isInteger(position) &&
+		position >= 1 &&
+		typeof item.requestedAt === 'string' &&
+		item.requestedAt !== ''
+	) {
+		return { stagePosition: position, requestedAt: item.requestedAt };
+	}
+	return undefined;
 }
 
 function buildApprovalListRequest(parameters: IDataObject): OperationRequest {
@@ -243,7 +322,7 @@ function buildPolicyCheckRequest(parameters: IDataObject): OperationRequest {
 export function extractList(response: unknown): unknown[] {
 	if (Array.isArray(response)) return response;
 	if (response && typeof response === 'object') {
-		for (const key of ['approvals', 'items', 'data', 'results']) {
+		for (const key of ['approvals', 'policies', 'customers', 'flows', 'items', 'data', 'results']) {
 			const value = (response as Record<string, unknown>)[key];
 			if (Array.isArray(value)) return value;
 		}
