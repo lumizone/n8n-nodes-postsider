@@ -22,7 +22,62 @@ test('node exposes the reviewed MVP resources and is usable as an AI tool', () =
 	assert.equal(node.description.usableAsTool, true);
 	const resource = node.description.properties.find((property) => property.name === 'resource');
 	const values = (resource?.options ?? []).map((option) => ('value' in option ? option.value : null));
-	assert.deepEqual(values, ['approval', 'channel', 'group', 'media', 'post', 'scheduling']);
+	assert.deepEqual(values, ['approval', 'channel', 'group', 'media', 'policy', 'post', 'scheduling']);
+});
+
+test('node exposes only the reviewed operations', () => {
+	const operationProperties = node.description.properties.filter(
+		(property) => property.name === 'operation',
+	);
+	const byResource = Object.fromEntries(
+		operationProperties.map((property) => [
+			(property.displayOptions?.show?.resource as string[])[0],
+			(property.options ?? []).map((option) => ('value' in option ? option.value : null)),
+		]),
+	);
+	assert.deepEqual(byResource.approval, ['approve', 'getMany', 'getStatus', 'reject', 'request']);
+	assert.deepEqual(byResource.policy, ['check', 'getMany']);
+	assert.deepEqual(byResource.group, ['archive', 'create', 'getMany', 'update']);
+});
+
+test('new operations expose their fields only for the right resource and operation', () => {
+	const find = (name: string) =>
+		collectProperties(node.description.properties).find((property) => property.name === name);
+	assert.deepEqual(find('approvalId')?.displayOptions?.show, {
+		resource: ['approval'],
+		operation: ['approve', 'reject'],
+	});
+	assert.deepEqual(find('note')?.displayOptions?.show, {
+		resource: ['approval'],
+		operation: ['approve', 'reject'],
+	});
+	assert.deepEqual(find('postId')?.displayOptions?.show?.operation, ['get', 'getStatus', 'request']);
+	assert.deepEqual(find('targetGroupId')?.displayOptions?.show, {
+		resource: ['group'],
+		operation: ['update', 'archive'],
+	});
+	assert.deepEqual(find('groupName')?.displayOptions?.show, {
+		resource: ['group'],
+		operation: ['create', 'update'],
+	});
+	assert.deepEqual(find('policyChannelPosts')?.displayOptions?.show, {
+		resource: ['policy'],
+		operation: ['check'],
+	});
+	assert.deepEqual(find('limit')?.displayOptions?.show?.returnAll, [false]);
+	assert.equal(find('approvalStatus')?.default, 'PENDING');
+});
+
+test('approve and reject descriptions name the required scope', () => {
+	const approval = node.description.properties.find(
+		(property) =>
+			property.name === 'operation' &&
+			(property.displayOptions?.show?.resource as string[])[0] === 'approval',
+	);
+	for (const value of ['approve', 'reject']) {
+		const option = (approval?.options ?? []).find((entry) => 'value' in entry && entry.value === value);
+		assert.match(String(option?.description), /approvals:decide/);
+	}
 });
 
 test('node exposes only safe MVP operations', () => {
@@ -36,7 +91,7 @@ test('node exposes only safe MVP operations', () => {
 	assert.ok(operations.includes('get'));
 	assert.ok(operations.includes('getMany'));
 	assert.ok(operations.includes('findNextSlot'));
-	assert.equal(operations.includes('request'), false);
+	assert.ok(operations.includes('request'));
 	assert.ok(operations.includes('getStatus'));
 	assert.ok(operations.includes('importFromUrl'));
 	assert.equal(operations.includes('delete'), false);

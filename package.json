@@ -1,6 +1,6 @@
 {
   "name": "n8n-nodes-postsider",
-  "version": "0.1.0-bootstrap.1",
+  "version": "0.2.0",
   "description": "Verified-ready n8n community node for PostSider social media publishing workflows",
   "license": "MIT",
   "homepage": "https://postsider.com",
@@ -65,5 +65,16 @@
   },
   "publishConfig": {
     "access": "public"
+  },
+  "overrides": {
+    "@langchain/core": {
+      "zod": "4.6.7"
+    },
+    "@langchain/classic": {
+      "zod": "4.6.7"
+    },
+    "langchain": {
+      "zod": "4.6.7"
+    }
   }
 }

@@ -1,3 +1,5 @@
+import { createHash, randomUUID } from 'node:crypto';
+
 import type { IDataObject, IHttpRequestMethods } from 'n8n-workflow';
 
 import {
@@ -126,6 +128,214 @@ function encodedId(parameters: IDataObject, name: string, displayName: string): 
 	return encodeURIComponent(requiredString(parameters, name, displayName));
 }
 
+const APPROVAL_STATUSES = ['PENDING', 'APPROVED', 'REJECTED'];
+const POLICY_POST_TYPES = ['draft', 'schedule', 'now'];
+const MAX_NOTE_LENGTH = 500;
+const MAX_NAME_LENGTH = 100;
+const DEFAULT_APPROVAL_LIMIT = 25;
+const MAX_APPROVAL_LIMIT = 100;
+export const MAX_APPROVAL_PAGES = 10;
+
+function groupName(parameters: IDataObject): string {
+	const name = requiredString(parameters, 'groupName', 'Group Name');
+	if (name.length > MAX_NAME_LENGTH) {
+		throw new Error(`Group Name must be at most ${MAX_NAME_LENGTH} characters`);
+	}
+	return name;
+}
+
+function nodeToken(nodeName: unknown): string {
+	return String(nodeName ?? '')
+		.replace(/[^A-Za-z0-9._-]/g, '_')
+		.slice(0, 40);
+}
+
+/**
+ * The key is bound to the execution, the node, the item, the approval, the
+ * decision, the stage position and the request time. A different stage or a
+ * re-requested approval never replays an older answer, and two Approve nodes in
+ * one execution never collide. Without a stage binding (the read failed) a
+ * random per-call nonce replaces the digest instead of a stale deterministic key.
+ */
+function decisionKey(
+	decision: string,
+	parameters: IDataObject,
+	approvalId: string,
+	note: string,
+	executionId: string,
+	itemIndex: number,
+	position: number | undefined,
+	requestedAt: string | undefined,
+): IDataObject {
+	const token = nodeToken(parameters.nodeName);
+	const tail =
+		position === undefined
+			? `nonce-${randomUUID()}`
+			: createHash('sha256')
+					.update(JSON.stringify([approvalId, decision, note, position, requestedAt]))
+					.digest('hex')
+					.slice(0, 32);
+	return {
+		'Idempotency-Key': validateIdempotencyKey(
+			`n8n:${executionId}:${token ? `${token}:` : ''}item:${itemIndex}:${tail}`,
+		),
+	};
+}
+
+export function buildDecisionRequest(
+	decision: 'approve' | 'reject',
+	parameters: IDataObject,
+	executionId: string,
+	itemIndex: number,
+): OperationRequest {
+	const id = encodedId(parameters, 'approvalId', 'Approval ID');
+	const note = String(parameters.note ?? '').trim();
+	if (note.length > MAX_NOTE_LENGTH) {
+		throw new Error(`Note must be at most ${MAX_NOTE_LENGTH} characters`);
+	}
+	const position = parameters.stagePosition;
+	const requestedAt = parameters.requestedAt;
+	const bound =
+		typeof position === 'number' &&
+		Number.isInteger(position) &&
+		position >= 1 &&
+		typeof requestedAt === 'string' &&
+		requestedAt !== '';
+	return {
+		method: 'POST',
+		endpoint: `/approvals/${id}/${decision}`,
+		input: {
+			body: { ...(note ? { note } : {}), ...(bound ? { expectStage: position } : {}) },
+			headers: decisionKey(
+				decision,
+				parameters,
+				requiredString(parameters, 'approvalId', 'Approval ID'),
+				note,
+				executionId,
+				itemIndex,
+				bound ? position : undefined,
+				bound ? requestedAt : undefined,
+			),
+		},
+	};
+}
+
+/** GET /approvals/:id, used to bind a decision to the current stage and round. */
+export function buildApprovalReadRequest(parameters: IDataObject): OperationRequest {
+	return {
+		method: 'GET',
+		endpoint: `/approvals/${encodedId(parameters, 'approvalId', 'Approval ID')}`,
+		input: {},
+	};
+}
+
+/** Stage position and requestedAt from a GET /approvals/:id response, if usable. */
+export function readDecisionBinding(
+	response: unknown,
+): { stagePosition: number; requestedAt: string } | undefined {
+	if (!response || typeof response !== 'object') return undefined;
+	const item = response as { requestedAt?: unknown; stage?: { position?: unknown } | null };
+	const position = item.stage?.position;
+	if (
+		typeof position === 'number' &&
+		Number.isInteger(position) &&
+		position >= 1 &&
+		typeof item.requestedAt === 'string' &&
+		item.requestedAt !== ''
+	) {
+		return { stagePosition: position, requestedAt: item.requestedAt };
+	}
+	return undefined;
+}
+
+function buildApprovalListRequest(parameters: IDataObject): OperationRequest {
+	const status = String(parameters.status ?? '').trim().toUpperCase();
+	if (status && !APPROVAL_STATUSES.includes(status)) {
+		throw new Error('Status must be Pending, Approved or Rejected');
+	}
+	const since = String(parameters.since ?? '').trim();
+	const returnAll = Boolean(parameters.returnAll);
+	let limit = DEFAULT_APPROVAL_LIMIT;
+	if (returnAll) {
+		limit = MAX_APPROVAL_LIMIT;
+	} else if (parameters.limit !== undefined && parameters.limit !== '') {
+		limit = Number(parameters.limit);
+		if (!Number.isInteger(limit) || limit < 1 || limit > MAX_APPROVAL_LIMIT) {
+			throw new Error(`Limit must be a whole number from 1 to ${MAX_APPROVAL_LIMIT}`);
+		}
+	}
+	const cursor = String(parameters.cursor ?? '').trim();
+	return {
+		method: 'GET',
+		endpoint: '/approvals',
+		input: {
+			qs: {
+				...(status ? { status } : {}),
+				...(since ? { since: normalizeScheduledDate(since) } : {}),
+				limit,
+				...(cursor ? { cursor } : {}),
+			},
+		},
+	};
+}
+
+function buildPolicyCheckRequest(parameters: IDataObject): OperationRequest {
+	const type = String(parameters.type ?? 'draft');
+	if (!POLICY_POST_TYPES.includes(type)) {
+		throw new Error('Post Type must be Draft, Schedule or Now');
+	}
+	const publishDate = String(parameters.publishDate ?? '').trim();
+	if (type === 'schedule' && !publishDate) throw new Error('Publish Date is required for scheduled posts');
+	const collection = (parameters.channelPosts ?? {}) as ChannelPostCollection;
+	const entries = collection.channelPost ?? [];
+	if (entries.length === 0) throw new Error('At least one Channel Post is required');
+	if (entries.length > 20) throw new Error('At most 20 Channel Posts can be checked at once');
+	const posts = entries.map((entry) => {
+		const channelId = String(entry.channelId ?? '').trim();
+		if (!channelId) throw new Error('Channel is required for every Channel Post');
+		const media = validateMedia(parseArray<PostSiderMedia>(entry.mediaJson, 'Media JSON'));
+		return {
+			integration: { id: channelId },
+			value: [
+				{
+					content: String(entry.content ?? ''),
+					image: media.map((item) => ({ path: String(item.path) })),
+				},
+			],
+			...(entry.firstComment ? { firstComment: entry.firstComment } : {}),
+		};
+	});
+	return {
+		method: 'POST',
+		endpoint: '/policies/evaluate',
+		input: {
+			body: {
+				type,
+				...(type === 'schedule' && publishDate ? { date: normalizeScheduledDate(publishDate) } : {}),
+				posts,
+			} as unknown as IDataObject,
+		},
+	};
+}
+
+/** Pulls the item list out of a cursor-paginated list response. */
+export function extractList(response: unknown): unknown[] {
+	if (Array.isArray(response)) return response;
+	if (response && typeof response === 'object') {
+		for (const key of ['approvals', 'policies', 'customers', 'flows', 'items', 'data', 'results']) {
+			const value = (response as Record<string, unknown>)[key];
+			if (Array.isArray(value)) return value;
+		}
+	}
+	return [];
+}
+
+export function nextCursor(response: unknown): string | undefined {
+	if (!response || typeof response !== 'object' || Array.isArray(response)) return undefined;
+	const value = (response as Record<string, unknown>).nextCursor;
+	return typeof value === 'string' && value ? value : undefined;
+}
+
 export function buildOperationRequest(
 	resource: string,
 	operation: string,
@@ -144,6 +354,38 @@ export function buildOperationRequest(
 	}
 	if (resource === 'group' && operation === 'getMany') {
 		return { method: 'GET', endpoint: '/groups', input: {} };
+	}
+	if (resource === 'group' && operation === 'create') {
+		return { method: 'POST', endpoint: '/customers', input: { body: { name: groupName(parameters) } } };
+	}
+	if (resource === 'group' && operation === 'update') {
+		return {
+			method: 'PUT',
+			endpoint: `/customers/${encodedId(parameters, 'targetGroupId', 'Group ID')}`,
+			input: { body: { name: groupName(parameters) } },
+		};
+	}
+	if (resource === 'group' && operation === 'archive') {
+		return {
+			method: 'POST',
+			endpoint: `/customers/${encodedId(parameters, 'targetGroupId', 'Group ID')}/archive`,
+			input: {},
+		};
+	}
+	if (resource === 'policy' && operation === 'check') return buildPolicyCheckRequest(parameters);
+	if (resource === 'policy' && operation === 'getMany') {
+		return { method: 'GET', endpoint: '/policies', input: {} };
+	}
+	if (resource === 'approval' && operation === 'request') {
+		return {
+			method: 'POST',
+			endpoint: `/posts/${encodedId(parameters, 'postId', 'Post ID')}/request-approval`,
+			input: {},
+		};
+	}
+	if (resource === 'approval' && operation === 'getMany') return buildApprovalListRequest(parameters);
+	if (resource === 'approval' && (operation === 'approve' || operation === 'reject')) {
+		return buildDecisionRequest(operation, parameters, executionId, itemIndex);
 	}
 	if (resource === 'post' && operation === 'create') {
 		return buildCreateRequest(parameters, executionId, itemIndex, now);

@@ -12,7 +12,7 @@ The package talks directly to the PostSider public REST API. It does not start t
 - Use stable idempotency keys so n8n retries do not create duplicate posts.
 - Import public HTTPS media URLs into the PostSider media library.
 - Find the next available queue slot for a channel.
-- Read the current human approval status for a post.
+- Request, list, approve and reject approvals; check a post against publishing policies; manage groups.
 - Normalize PostSider media fields and optionally simplify large post responses.
 - Use the node as an n8n AI tool.
 
@@ -57,14 +57,35 @@ The node appends `/public/v1`. Remote HTTP URLs and URLs containing embedded cre
 
 | Resource | Operation | Purpose |
 | --- | --- | --- |
+| Approval | Request | Ask the approvers to review a post |
 | Approval | Get Status | Retrieve the human approval state for a post |
+| Approval | Get Many | List approvals by status and date, newest first |
+| Approval | Approve / Reject | Decide a pending approval (optional note) |
 | Channel | Get Many | List connected and enabled channels, optionally by group |
 | Group | Get Many | List channel groups |
+| Group | Create / Rename / Archive | Manage groups (customer workspaces) |
 | Media | Import From URL | Import a public HTTPS image or video URL |
+| Policy | Check | Dry run: which publishing rules a post would hit (creates nothing) |
+| Policy | Get Many Rules | List the publishing policy rules |
 | Post | Create | Create a draft or schedule a post |
 | Post | Get | Retrieve a post and all channel versions in its group |
 | Post | Get Many | Retrieve posts in a required date range |
 | Scheduling | Find Next Slot | Find the next free queue slot for a channel |
+
+### Required API key scopes
+
+| Operation | Scope |
+| --- | --- |
+| Approval Get Status, Get Many | `approvals:read` |
+| Approval Request | `approvals:write` |
+| Approval Approve, Reject | `approvals:decide` (never granted by default) |
+| Policy Check | `posts:read` |
+| Policy Get Many Rules | `policies:read` |
+| Group Get Many | `channels:read` |
+| Group Create, Rename, Archive | `channels:write` |
+| Post Create | `posts:write` |
+
+Approval, policy and group operations need a PostSider version that has the matching endpoints. On older servers they return the server's error and the other operations keep working. For a self-hosted PostSider, set **Base URL** to your public origin including `/api` (see Credentials).
 
 ## Create Post
 
@@ -119,7 +140,11 @@ Allowed characters are letters, numbers, `.`, `_`, `:`, and `-` up to 255 charac
 
 ## Approval behavior
 
-The node exposes approval status as a read-only operation. Requesting, approving, and rejecting remain human actions in PostSider until the request endpoint offers atomic retry protection.
+Request, Get Many and Get Status are safe reads and requests. **Approve** and **Reject** make the decision that lets a post publish.
+
+> Do not wire Approve or Reject to unreviewed AI output or to an unauthenticated webhook. Use a dedicated API key with only `approvals:decide`, keep the example's signature check, and decide only from a source you trust. PostSider can block an API key from approving a post it requested itself.
+
+The node reads the approval first and sends `expectStage` (the current stage position), so a stale run gets a 409 instead of deciding a later stage. Each decision sends an `Idempotency-Key` built from the execution ID, the node name, the item index and a digest of the approval, decision, note, stage position and request time, so an n8n retry does not decide twice, a later stage or re-requested approval never replays an older answer, and two Approve nodes never collide. If the read fails, a random per-call key is used and `expectStage` is omitted. **Get Many** with **Return All** follows `nextCursor` for up to 10 pages (1000 approvals).
 
 ## Example workflows
 
@@ -127,8 +152,9 @@ Import these files into n8n and replace placeholder channel IDs:
 
 - `examples/import-media-and-create-draft.json`
 - `examples/find-slot-and-schedule.json`
+- `examples/approval-notify-slack.json`
 
-Both examples are safe by default. The first creates a draft. The second schedules only after the user configures and activates it.
+The first two are safe by default: the first creates a draft, the second schedules only after the user configures and activates it. The third receives an `approval.requested` webhook, verifies its HMAC signature (placeholder secret from the `POSTSIDER_WEBHOOK_SECRET` environment variable) and filters the event; its Approve and Reject nodes are disabled until you enable one on purpose.
 
 ## Development
 

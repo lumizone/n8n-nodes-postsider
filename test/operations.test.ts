@@ -4,6 +4,8 @@ import test from 'node:test';
 
 import {
 	buildOperationRequest,
+	extractList,
+	nextCursor,
 	normalizePostResponse,
 	simplifyPostResponse,
 } from '../nodes/PostSider/shared/operations.ts';
@@ -165,10 +167,6 @@ test('scheduling, approval, and media operations map to bounded public endpoints
 		buildOperationRequest('scheduling', 'findNextSlot', { channelId: 'ch 1' }, 'e', 0),
 		{ method: 'GET', endpoint: '/find-slot/ch%201', input: {} },
 	);
-	assert.throws(
-		() => buildOperationRequest('approval', 'request', { postId: 'post_1' }, 'e', 0),
-		/Unsupported PostSider operation/,
-	);
 	assert.deepEqual(
 		buildOperationRequest('approval', 'getStatus', { postId: 'post_1' }, 'e', 0),
 		{ method: 'GET', endpoint: '/posts/post_1/approval', input: {} },
@@ -242,5 +240,311 @@ test('simplifyPostResponse keeps the operational fields and flattens integration
 			integrationName: 'PostSider',
 			provider: 'linkedin',
 		},
+	);
+});
+
+test('approval request posts to request-approval without a body', () => {
+	assert.deepEqual(buildOperationRequest('approval', 'request', { postId: 'post 1' }, 'e', 0), {
+		method: 'POST',
+		endpoint: '/posts/post%201/request-approval',
+		input: {},
+	});
+	assert.throws(
+		() => buildOperationRequest('approval', 'request', { postId: ' ' }, 'e', 0),
+		/Post ID is required/,
+	);
+});
+
+const BOUND = { stagePosition: 2, requestedAt: '2026-11-04T10:00:00.000Z', nodeName: 'Approve Post' };
+
+function decisionKey(
+	decision: string,
+	extra: Record<string, unknown> = {},
+	exec = 'exec_9',
+	item = 3,
+): string {
+	const request = buildOperationRequest(
+		'approval',
+		decision,
+		{ approvalId: 'appr/1', note: 'Looks good', ...BOUND, ...extra },
+		exec,
+		item,
+	);
+	return String((request.input.headers as Record<string, string>)['Idempotency-Key']);
+}
+
+test('approval approve and reject send note and expectStage with a stage bound key', () => {
+	for (const decision of ['approve', 'reject']) {
+		const request = buildOperationRequest(
+			'approval',
+			decision,
+			{ approvalId: 'appr/1', note: '  Looks good  ', ...BOUND },
+			'exec_9',
+			3,
+		);
+		assert.equal(request.method, 'POST');
+		assert.equal(request.endpoint, `/approvals/appr%2F1/${decision}`);
+		assert.deepEqual(request.input.body, { note: 'Looks good', expectStage: 2 });
+		const key = decisionKey(decision);
+		assert.match(key, /^n8n:exec_9:Approve_Post:item:3:[0-9a-f]{32}$/);
+		assert.deepEqual(request.input.headers, { 'Idempotency-Key': key });
+	}
+	const noNote = buildOperationRequest('approval', 'approve', { approvalId: 'a1', ...BOUND }, 'e', 0);
+	assert.deepEqual(noNote.input.body, { expectStage: 2 });
+});
+
+test('approval decision key changes with stage, round, approval, node, item, decision and note', () => {
+	const base = decisionKey('approve');
+	assert.equal(base, decisionKey('approve'));
+	assert.notEqual(base, decisionKey('approve', { stagePosition: 3 }));
+	assert.notEqual(base, decisionKey('approve', { requestedAt: '2026-11-05T09:00:00.000Z' }));
+	assert.notEqual(base, decisionKey('approve', { approvalId: 'other' }));
+	assert.notEqual(base, decisionKey('approve', { nodeName: 'Approve Post 2' }));
+	assert.notEqual(base, decisionKey('approve', {}, 'exec_9', 4));
+	assert.notEqual(base, decisionKey('reject'));
+	assert.notEqual(base, decisionKey('approve', { note: 'other' }));
+});
+
+test('two Approve nodes in one execution on different approvals never share a key', () => {
+	const a = decisionKey('approve', { approvalId: 'one', nodeName: 'Approve A' }, 'exec_9', 0);
+	const b = decisionKey('approve', { approvalId: 'two', nodeName: 'Approve B' }, 'exec_9', 0);
+	assert.notEqual(a, b);
+});
+
+test('approval decision without a stage binding uses a random per-call key and no expectStage', () => {
+	const request = () =>
+		buildOperationRequest('approval', 'approve', { approvalId: 'a1', nodeName: 'N' }, 'exec_9', 0);
+	const k1 = (request().input.headers as Record<string, string>)['Idempotency-Key'];
+	const k2 = (request().input.headers as Record<string, string>)['Idempotency-Key'];
+	assert.notEqual(k1, k2);
+	assert.match(k1, /^n8n:exec_9:N:item:0:nonce-[0-9a-f-]+$/);
+	assert.deepEqual(request().input.body, {});
+});
+
+test('approval decisions validate the id and the note length', () => {
+	assert.throws(
+		() => buildOperationRequest('approval', 'approve', { approvalId: '' }, 'e', 0),
+		/Approval ID is required/,
+	);
+	assert.throws(
+		() => buildOperationRequest('approval', 'reject', { approvalId: '  ' }, 'e', 0),
+		/Approval ID is required/,
+	);
+	assert.doesNotThrow(() =>
+		buildOperationRequest('approval', 'approve', { approvalId: 'a', note: 'x'.repeat(500) }, 'e', 0),
+	);
+	assert.throws(
+		() =>
+			buildOperationRequest('approval', 'approve', { approvalId: 'a', note: 'x'.repeat(501) }, 'e', 0),
+		/Note must be at most 500/,
+	);
+	assert.throws(
+		() => buildOperationRequest('approval', 'approve', { approvalId: 'a', ...BOUND }, 'bad exec id', 0),
+		/Idempotency Key/,
+	);
+});
+
+test('approval get many maps filters to the query string with a bounded limit', () => {
+	assert.deepEqual(buildOperationRequest('approval', 'getMany', {}, 'e', 0), {
+		method: 'GET',
+		endpoint: '/approvals',
+		input: { qs: { limit: 25 } },
+	});
+	assert.deepEqual(
+		buildOperationRequest(
+			'approval',
+			'getMany',
+			{ status: 'pending', since: '2026-11-01T00:00:00Z', limit: 10 },
+			'e',
+			0,
+		),
+		{
+			method: 'GET',
+			endpoint: '/approvals',
+			input: { qs: { status: 'PENDING', since: '2026-11-01T00:00:00.000Z', limit: 10 } },
+		},
+	);
+	const all = buildOperationRequest('approval', 'getMany', { returnAll: true, limit: 5, cursor: 'c1' }, 'e', 0);
+	assert.deepEqual(all.input.qs, { limit: 100, cursor: 'c1' });
+	for (const limit of [0, 101, 1.5, 'abc']) {
+		assert.throws(
+			() => buildOperationRequest('approval', 'getMany', { limit }, 'e', 0),
+			/Limit must be a whole number/,
+		);
+	}
+	assert.throws(
+		() => buildOperationRequest('approval', 'getMany', { status: 'DONE' }, 'e', 0),
+		/Status must be/,
+	);
+	assert.throws(
+		() => buildOperationRequest('approval', 'getMany', { since: 'yesterday' }, 'e', 0),
+		/valid ISO 8601/,
+	);
+});
+
+test('list helpers read the item array and the next cursor', () => {
+	assert.deepEqual(extractList([{ id: 1 }]), [{ id: 1 }]);
+	assert.deepEqual(extractList({ approvals: [{ id: 2 }], nextCursor: 'n' }), [{ id: 2 }]);
+	assert.deepEqual(extractList({ nothing: true }), []);
+	// Real server shapes (backend controller specs).
+	assert.deepEqual(
+		extractList({ policies: [{ id: 'r1', name: 'No links', effect: 'BLOCK' }] }),
+		[{ id: 'r1', name: 'No links', effect: 'BLOCK' }],
+	);
+	assert.deepEqual(extractList({ customers: [{ id: 'c1', name: 'Acme', channelCount: 2 }] }), [
+		{ id: 'c1', name: 'Acme', channelCount: 2 },
+	]);
+	assert.deepEqual(extractList({ flows: [{ id: 'f1' }] }), [{ id: 'f1' }]);
+	assert.deepEqual(extractList({ approvals: [], nextCursor: null }), []);
+	assert.deepEqual(extractList(null), []);
+	assert.equal(nextCursor({ nextCursor: 'n' }), 'n');
+	assert.equal(nextCursor({ nextCursor: null }), undefined);
+	assert.equal(nextCursor([]), undefined);
+});
+
+test('policy check builds the evaluate body from channel posts', () => {
+	const request = buildOperationRequest(
+		'policy',
+		'check',
+		{
+			type: 'schedule',
+			publishDate: '2026-11-10T09:00:00',
+			channelPosts: {
+				channelPost: [
+					{
+						channelId: 'ch_1',
+						content: 'Hello',
+						firstComment: 'First',
+						mediaJson: '[{"id":"m1","path":"/a.png"}]',
+					},
+					{ channelId: 'ch_2', content: '', mediaJson: '[]' },
+				],
+			},
+		},
+		'e',
+		0,
+	);
+	assert.deepEqual(request, {
+		method: 'POST',
+		endpoint: '/policies/evaluate',
+		input: {
+			body: {
+				type: 'schedule',
+				date: '2026-11-10T09:00:00.000Z',
+				posts: [
+					{
+						integration: { id: 'ch_1' },
+						value: [{ content: 'Hello', image: [{ path: '/a.png' }] }],
+						firstComment: 'First',
+					},
+					{ integration: { id: 'ch_2' }, value: [{ content: '', image: [] }] },
+				],
+			},
+		},
+	});
+	const draft = buildOperationRequest(
+		'policy',
+		'check',
+		{ type: 'draft', channelPosts: { channelPost: [{ channelId: 'c', content: 'x' }] } },
+		'e',
+		0,
+	);
+	assert.equal('date' in (draft.input.body as object), false);
+});
+
+test('policy check validates type, date, channels and media', () => {
+	const posts = { channelPost: [{ channelId: 'c', content: 'x' }] };
+	assert.throws(
+		() => buildOperationRequest('policy', 'check', { type: 'later', channelPosts: posts }, 'e', 0),
+		/Post Type must be/,
+	);
+	assert.throws(
+		() => buildOperationRequest('policy', 'check', { type: 'schedule', channelPosts: posts }, 'e', 0),
+		/Publish Date is required/,
+	);
+	assert.throws(
+		() => buildOperationRequest('policy', 'check', { type: 'draft', channelPosts: {} }, 'e', 0),
+		/At least one Channel Post/,
+	);
+	assert.throws(
+		() =>
+			buildOperationRequest(
+				'policy',
+				'check',
+				{ type: 'draft', channelPosts: { channelPost: [{ channelId: '', content: 'x' }] } },
+				'e',
+				0,
+			),
+		/Channel is required/,
+	);
+	assert.throws(
+		() =>
+			buildOperationRequest(
+				'policy',
+				'check',
+				{
+					type: 'draft',
+					channelPosts: { channelPost: Array.from({ length: 21 }, () => ({ channelId: 'c' })) },
+				},
+				'e',
+				0,
+			),
+		/At most 20/,
+	);
+	assert.throws(
+		() =>
+			buildOperationRequest(
+				'policy',
+				'check',
+				{
+					type: 'draft',
+					channelPosts: { channelPost: [{ channelId: 'c', mediaJson: '[{"id":"m"}]' }] },
+				},
+				'e',
+				0,
+			),
+		/non-empty id and path/,
+	);
+});
+
+test('policy get many lists rules', () => {
+	assert.deepEqual(buildOperationRequest('policy', 'getMany', {}, 'e', 0), {
+		method: 'GET',
+		endpoint: '/policies',
+		input: {},
+	});
+});
+
+test('group create, rename and archive map to the customer routes', () => {
+	assert.deepEqual(buildOperationRequest('group', 'create', { groupName: '  Acme  ' }, 'e', 0), {
+		method: 'POST',
+		endpoint: '/customers',
+		input: { body: { name: 'Acme' } },
+	});
+	assert.deepEqual(
+		buildOperationRequest('group', 'update', { targetGroupId: 'g/1', groupName: 'New' }, 'e', 0),
+		{ method: 'PUT', endpoint: '/customers/g%2F1', input: { body: { name: 'New' } } },
+	);
+	assert.deepEqual(buildOperationRequest('group', 'archive', { targetGroupId: 'g1' }, 'e', 0), {
+		method: 'POST',
+		endpoint: '/customers/g1/archive',
+		input: {},
+	});
+});
+
+test('group operations validate names and ids', () => {
+	assert.throws(() => buildOperationRequest('group', 'create', { groupName: '   ' }, 'e', 0), /Group Name is required/);
+	assert.throws(
+		() => buildOperationRequest('group', 'create', { groupName: 'x'.repeat(101) }, 'e', 0),
+		/at most 100/,
+	);
+	assert.doesNotThrow(() => buildOperationRequest('group', 'create', { groupName: 'x'.repeat(100) }, 'e', 0));
+	assert.throws(
+		() => buildOperationRequest('group', 'update', { targetGroupId: '', groupName: 'a' }, 'e', 0),
+		/Group ID is required/,
+	);
+	assert.throws(
+		() => buildOperationRequest('group', 'archive', { targetGroupId: ' ' }, 'e', 0),
+		/Group ID is required/,
 	);
 });
