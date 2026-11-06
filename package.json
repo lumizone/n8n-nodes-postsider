@@ -65,5 +65,16 @@
   },
   "publishConfig": {
     "access": "public"
+  },
+  "overrides": {
+    "@langchain/core": {
+      "zod": "4.6.7"
+    },
+    "@langchain/classic": {
+      "zod": "4.6.7"
+    },
+    "langchain": {
+      "zod": "4.6.7"
+    }
   }
 }
