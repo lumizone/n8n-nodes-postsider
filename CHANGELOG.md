@@ -2,7 +2,9 @@
 
 All notable changes to this project will be documented in this file.
 
-## 0.2.0 - Unreleased
+## 0.2.1 - 2026-11-06
+
+First release on npm. It carries everything listed for 0.2.0 below; 0.2.0 was tagged in git but never published because its publish run failed before reaching npm.
 
 ### Fixed
 
