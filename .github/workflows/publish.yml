@@ -25,9 +25,6 @@ jobs:
           cache: npm
           registry-url: https://registry.npmjs.org
 
-      - name: Install npm for trusted publishing
-        run: npm install --global npm@11.5.1
-
       - name: Verify tag matches package version
         run: |
           node -e "const p=require('./package.json'); if (process.env.GITHUB_REF_NAME !== p.version) { throw new Error('Tag must equal package version ' + p.version); }"
