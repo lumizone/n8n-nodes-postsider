@@ -7,6 +7,7 @@ import {
 	normalizeScheduledDate,
 	parseJsonObject,
 } from '../nodes/PostSider/shared/payloads.ts';
+import { testNode } from './helpers.ts';
 
 test('buildCreatePostBody creates a safe draft payload with API defaults', () => {
 	assert.deepEqual(
@@ -76,13 +77,13 @@ test('buildCreatePostBody preserves media, tags, first comment, and provider set
 });
 
 test('normalizeScheduledDate appends UTC designator to PostSider slot values', () => {
-	assert.equal(normalizeScheduledDate('2026-10-02T09:00:00'), '2026-10-02T09:00:00.000Z');
-	assert.equal(normalizeScheduledDate('2026-10-02T09:00:00Z'), '2026-10-02T09:00:00.000Z');
+	assert.equal(normalizeScheduledDate(testNode, '2026-10-02T09:00:00'), '2026-10-02T09:00:00.000Z');
+	assert.equal(normalizeScheduledDate(testNode, '2026-10-02T09:00:00Z'), '2026-10-02T09:00:00.000Z');
 });
 
 test('parseJsonObject accepts an object and rejects arrays', () => {
-	assert.deepEqual(parseJsonObject('{"who_can_reply_post":"everyone"}', 'Settings'), {
+	assert.deepEqual(parseJsonObject(testNode, '{"who_can_reply_post":"everyone"}', 'Settings'), {
 		who_can_reply_post: 'everyone',
 	});
-	assert.throws(() => parseJsonObject('[]', 'Settings'), /Settings must be a JSON object/);
+	assert.throws(() => parseJsonObject(testNode, '[]', 'Settings'), /Settings must be a JSON object/);
 });

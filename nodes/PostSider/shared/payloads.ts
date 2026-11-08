@@ -1,3 +1,6 @@
+import type { INode } from 'n8n-workflow';
+import { NodeOperationError } from 'n8n-workflow';
+
 export type PostType = 'draft' | 'schedule';
 
 export interface PostSiderMedia {
@@ -57,24 +60,28 @@ export function buildCreatePostBody(input: CreatePostInput): CreatePostBody {
 	};
 }
 
-export function normalizeScheduledDate(value: string): string {
+export function normalizeScheduledDate(node: INode, value: string): string {
 	const hasTimeZone = /(?:Z|[+-]\d{2}:\d{2})$/i.test(value);
 	const parsed = new Date(hasTimeZone ? value : `${value}Z`);
 	if (Number.isNaN(parsed.getTime())) {
-		throw new Error('Publish Date must be a valid ISO 8601 date and time');
+		throw new NodeOperationError(node, 'Publish Date must be a valid ISO 8601 date and time');
 	}
 	return parsed.toISOString();
 }
 
-export function parseJsonObject(value: string, fieldName: string): Record<string, unknown> {
+export function parseJsonObject(
+	node: INode,
+	value: string,
+	fieldName: string,
+): Record<string, unknown> {
 	let parsed: unknown;
 	try {
 		parsed = JSON.parse(value);
 	} catch {
-		throw new Error(`${fieldName} must contain valid JSON`);
+		throw new NodeOperationError(node, `${fieldName} must contain valid JSON`);
 	}
 	if (parsed === null || Array.isArray(parsed) || typeof parsed !== 'object') {
-		throw new Error(`${fieldName} must be a JSON object`);
+		throw new NodeOperationError(node, `${fieldName} must be a JSON object`);
 	}
 	return parsed as Record<string, unknown>;
 }

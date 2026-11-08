@@ -1,6 +1,7 @@
 /* eslint-disable @n8n/community-nodes/no-restricted-imports */
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { runInNewContext } from 'node:vm';
 
 import { PostSiderApi } from '../credentials/PostSiderApi.credentials.ts';
 import { PostSider } from '../nodes/PostSider/PostSider.node.ts';
@@ -8,14 +9,46 @@ import { PostSider } from '../nodes/PostSider/PostSider.node.ts';
 const node = new PostSider();
 const credential = new PostSiderApi();
 
-test('credential stores the API key as a secret and delegates testing to the hardened node method', () => {
+test('credential stores the API key as a secret and tests the connection declaratively', () => {
 	const apiKey = credential.properties.find((property) => property.name === 'apiKey');
 	assert.equal(apiKey?.typeOptions?.password, true);
 	assert.deepEqual(credential.authenticate.properties.headers, {
 		Authorization: '={{$credentials.apiKey}}',
 	});
-	assert.equal(credential.test, undefined);
-	assert.equal(node.description.credentials?.[0].testedBy, 'postSiderCredentialTest');
+	assert.equal(node.description.credentials?.[0].testedBy, undefined);
+	assert.equal(node.methods?.credentialTest, undefined);
+});
+
+function resolveTestBaseUrl(baseUrl: string): string {
+	const expression = String(credential.test.request.baseURL);
+	assert.ok(expression.startsWith('={{') && expression.endsWith('}}'));
+	return runInNewContext(expression.slice(3, -2), { $credentials: { baseUrl } }) as string;
+}
+
+test('credential test calls GET /is-connected on the normalized base URL', () => {
+	assert.equal(credential.test.request.url, '/is-connected');
+	assert.equal(credential.test.request.method, 'GET');
+	assert.equal(resolveTestBaseUrl('https://api.postsider.com'), 'https://api.postsider.com/public/v1');
+	assert.equal(resolveTestBaseUrl('https://api.postsider.com/'), 'https://api.postsider.com/public/v1');
+	assert.equal(
+		resolveTestBaseUrl('https://social.example.com/api/'),
+		'https://social.example.com/api/public/v1',
+	);
+	assert.equal(
+		resolveTestBaseUrl('https://social.example.com/api/public/v1/'),
+		'https://social.example.com/api/public/v1',
+	);
+});
+
+test('node and credential declare light and dark icons', () => {
+	assert.deepEqual(node.description.icon, {
+		light: 'file:postsider.svg',
+		dark: 'file:postsider.dark.svg',
+	});
+	assert.deepEqual(credential.icon, {
+		light: 'file:../nodes/PostSider/postsider.svg',
+		dark: 'file:../nodes/PostSider/postsider.dark.svg',
+	});
 });
 
 test('node exposes the reviewed MVP resources and is usable as an AI tool', () => {

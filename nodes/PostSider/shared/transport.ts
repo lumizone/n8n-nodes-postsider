@@ -4,7 +4,9 @@ import type {
 	IHttpRequestMethods,
 	IHttpRequestOptions,
 	ILoadOptionsFunctions,
+	INode,
 } from 'n8n-workflow';
+import { NodeOperationError } from 'n8n-workflow';
 
 type PostSiderFunctions = IExecuteFunctions | ILoadOptionsFunctions;
 
@@ -18,18 +20,18 @@ function isLoopback(hostname: string): boolean {
 	return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]';
 }
 
-export function normalizeApiBaseUrl(value: string): string {
+export function normalizeApiBaseUrl(node: INode, value: string): string {
 	let url: URL;
 	try {
 		url = new URL(value);
 	} catch {
-		throw new Error('Base URL must be a valid absolute URL');
+		throw new NodeOperationError(node, 'Base URL must be a valid absolute URL');
 	}
 	if (url.username || url.password) {
-		throw new Error('Base URL must not include credentials');
+		throw new NodeOperationError(node, 'Base URL must not include credentials');
 	}
 	if (url.protocol !== 'https:' && !(url.protocol === 'http:' && isLoopback(url.hostname))) {
-		throw new Error('Base URL must use HTTPS unless it points to a local development server');
+		throw new NodeOperationError(node, 'Base URL must use HTTPS unless it points to a local development server');
 	}
 	url.search = '';
 	url.hash = '';
@@ -63,7 +65,7 @@ export async function postSiderApiRequest<T = IDataObject>(
 	input: RequestInput = {},
 ): Promise<T> {
 	const credentials = await this.getCredentials('postSiderApi');
-	const baseUrl = normalizeApiBaseUrl(String(credentials.baseUrl));
+	const baseUrl = normalizeApiBaseUrl(this.getNode(), String(credentials.baseUrl));
 	const options = buildRequestOptions(method, `${baseUrl}${endpoint}`, input);
 	return (await this.helpers.httpRequestWithAuthentication.call(
 		this,

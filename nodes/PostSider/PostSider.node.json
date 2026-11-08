@@ -2,9 +2,9 @@
   "node": "n8n-nodes-postsider.postSider",
   "nodeVersion": "1.0",
   "codexVersion": "1.0",
-  "categories": ["Marketing", "Communication"],
+  "categories": ["Marketing & Content", "Communication"],
   "subcategories": {
-    "Marketing": ["Social Media"]
+    "Marketing & Content": ["Social Media"]
   },
   "resources": {
     "credentialDocumentation": [

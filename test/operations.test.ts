@@ -9,10 +9,11 @@ import {
 	normalizePostResponse,
 	simplifyPostResponse,
 } from '../nodes/PostSider/shared/operations.ts';
+import { testNode } from './helpers.ts';
 
 test('channel get many maps group filter to integrations endpoint', () => {
 	assert.deepEqual(
-		buildOperationRequest('channel', 'getMany', { groupId: 'group_1' }, 'exec_1', 0),
+		buildOperationRequest(testNode, 'channel', 'getMany', { groupId: 'group_1' }, 'exec_1', 0),
 		{
 			method: 'GET',
 			endpoint: '/integrations',
@@ -22,7 +23,7 @@ test('channel get many maps group filter to integrations endpoint', () => {
 });
 
 test('group get many maps to groups endpoint', () => {
-	assert.deepEqual(buildOperationRequest('group', 'getMany', {}, 'exec_1', 0), {
+	assert.deepEqual(buildOperationRequest(testNode, 'group', 'getMany', {}, 'exec_1', 0), {
 		method: 'GET',
 		endpoint: '/groups',
 		input: {},
@@ -31,6 +32,7 @@ test('group get many maps to groups endpoint', () => {
 
 test('post create generates a retry-safe idempotency key and draft date', () => {
 	const request = buildOperationRequest(
+		testNode,
 		'post',
 		'create',
 		{
@@ -91,6 +93,7 @@ test('post create keeps the generated draft payload stable across same-day retri
 		idempotencyKey: '',
 	};
 	const first = buildOperationRequest(
+		testNode,
 		'post',
 		'create',
 		parameters,
@@ -99,6 +102,7 @@ test('post create keeps the generated draft payload stable across same-day retri
 		() => new Date('2026-10-01T00:00:01.000Z'),
 	);
 	const retry = buildOperationRequest(
+		testNode,
 		'post',
 		'create',
 		parameters,
@@ -113,6 +117,7 @@ test('post create requires a publish date when scheduling', () => {
 	assert.throws(
 		() =>
 			buildOperationRequest(
+				testNode,
 				'post',
 				'create',
 				{
@@ -131,13 +136,14 @@ test('post create requires a publish date when scheduling', () => {
 });
 
 test('post read operations map IDs and date filters', () => {
-	assert.deepEqual(buildOperationRequest('post', 'get', { postId: 'post_1' }, 'e', 0), {
+	assert.deepEqual(buildOperationRequest(testNode, 'post', 'get', { postId: 'post_1' }, 'e', 0), {
 		method: 'GET',
 		endpoint: '/posts/post_1',
 		input: {},
 	});
 	assert.deepEqual(
 		buildOperationRequest(
+			testNode,
 			'post',
 			'getMany',
 			{
@@ -164,15 +170,16 @@ test('post read operations map IDs and date filters', () => {
 
 test('scheduling, approval, and media operations map to bounded public endpoints', () => {
 	assert.deepEqual(
-		buildOperationRequest('scheduling', 'findNextSlot', { channelId: 'ch 1' }, 'e', 0),
+		buildOperationRequest(testNode, 'scheduling', 'findNextSlot', { channelId: 'ch 1' }, 'e', 0),
 		{ method: 'GET', endpoint: '/find-slot/ch%201', input: {} },
 	);
 	assert.deepEqual(
-		buildOperationRequest('approval', 'getStatus', { postId: 'post_1' }, 'e', 0),
+		buildOperationRequest(testNode, 'approval', 'getStatus', { postId: 'post_1' }, 'e', 0),
 		{ method: 'GET', endpoint: '/posts/post_1/approval', input: {} },
 	);
 	assert.deepEqual(
 		buildOperationRequest(
+			testNode,
 			'media',
 			'importFromUrl',
 			{ url: 'https://cdn.example/photo.png' },
@@ -188,6 +195,7 @@ test('scheduling, approval, and media operations map to bounded public endpoints
 	assert.throws(
 		() =>
 			buildOperationRequest(
+				testNode,
 				'media',
 				'importFromUrl',
 				{ url: 'http://cdn.example/photo.png' },
@@ -244,13 +252,13 @@ test('simplifyPostResponse keeps the operational fields and flattens integration
 });
 
 test('approval request posts to request-approval without a body', () => {
-	assert.deepEqual(buildOperationRequest('approval', 'request', { postId: 'post 1' }, 'e', 0), {
+	assert.deepEqual(buildOperationRequest(testNode, 'approval', 'request', { postId: 'post 1' }, 'e', 0), {
 		method: 'POST',
 		endpoint: '/posts/post%201/request-approval',
 		input: {},
 	});
 	assert.throws(
-		() => buildOperationRequest('approval', 'request', { postId: ' ' }, 'e', 0),
+		() => buildOperationRequest(testNode, 'approval', 'request', { postId: ' ' }, 'e', 0),
 		/Post ID is required/,
 	);
 });
@@ -264,6 +272,7 @@ function decisionKey(
 	item = 3,
 ): string {
 	const request = buildOperationRequest(
+		testNode,
 		'approval',
 		decision,
 		{ approvalId: 'appr/1', note: 'Looks good', ...BOUND, ...extra },
@@ -276,6 +285,7 @@ function decisionKey(
 test('approval approve and reject send note and expectStage with a stage bound key', () => {
 	for (const decision of ['approve', 'reject']) {
 		const request = buildOperationRequest(
+			testNode,
 			'approval',
 			decision,
 			{ approvalId: 'appr/1', note: '  Looks good  ', ...BOUND },
@@ -289,7 +299,7 @@ test('approval approve and reject send note and expectStage with a stage bound k
 		assert.match(key, /^n8n:exec_9:Approve_Post:item:3:[0-9a-f]{32}$/);
 		assert.deepEqual(request.input.headers, { 'Idempotency-Key': key });
 	}
-	const noNote = buildOperationRequest('approval', 'approve', { approvalId: 'a1', ...BOUND }, 'e', 0);
+	const noNote = buildOperationRequest(testNode, 'approval', 'approve', { approvalId: 'a1', ...BOUND }, 'e', 0);
 	assert.deepEqual(noNote.input.body, { expectStage: 2 });
 });
 
@@ -313,7 +323,7 @@ test('two Approve nodes in one execution on different approvals never share a ke
 
 test('approval decision without a stage binding uses a random per-call key and no expectStage', () => {
 	const request = () =>
-		buildOperationRequest('approval', 'approve', { approvalId: 'a1', nodeName: 'N' }, 'exec_9', 0);
+		buildOperationRequest(testNode, 'approval', 'approve', { approvalId: 'a1', nodeName: 'N' }, 'exec_9', 0);
 	const k1 = (request().input.headers as Record<string, string>)['Idempotency-Key'];
 	const k2 = (request().input.headers as Record<string, string>)['Idempotency-Key'];
 	assert.notEqual(k1, k2);
@@ -323,35 +333,36 @@ test('approval decision without a stage binding uses a random per-call key and n
 
 test('approval decisions validate the id and the note length', () => {
 	assert.throws(
-		() => buildOperationRequest('approval', 'approve', { approvalId: '' }, 'e', 0),
+		() => buildOperationRequest(testNode, 'approval', 'approve', { approvalId: '' }, 'e', 0),
 		/Approval ID is required/,
 	);
 	assert.throws(
-		() => buildOperationRequest('approval', 'reject', { approvalId: '  ' }, 'e', 0),
+		() => buildOperationRequest(testNode, 'approval', 'reject', { approvalId: '  ' }, 'e', 0),
 		/Approval ID is required/,
 	);
 	assert.doesNotThrow(() =>
-		buildOperationRequest('approval', 'approve', { approvalId: 'a', note: 'x'.repeat(500) }, 'e', 0),
+		buildOperationRequest(testNode, 'approval', 'approve', { approvalId: 'a', note: 'x'.repeat(500) }, 'e', 0),
 	);
 	assert.throws(
 		() =>
-			buildOperationRequest('approval', 'approve', { approvalId: 'a', note: 'x'.repeat(501) }, 'e', 0),
+			buildOperationRequest(testNode, 'approval', 'approve', { approvalId: 'a', note: 'x'.repeat(501) }, 'e', 0),
 		/Note must be at most 500/,
 	);
 	assert.throws(
-		() => buildOperationRequest('approval', 'approve', { approvalId: 'a', ...BOUND }, 'bad exec id', 0),
+		() => buildOperationRequest(testNode, 'approval', 'approve', { approvalId: 'a', ...BOUND }, 'bad exec id', 0),
 		/Idempotency Key/,
 	);
 });
 
 test('approval get many maps filters to the query string with a bounded limit', () => {
-	assert.deepEqual(buildOperationRequest('approval', 'getMany', {}, 'e', 0), {
+	assert.deepEqual(buildOperationRequest(testNode, 'approval', 'getMany', {}, 'e', 0), {
 		method: 'GET',
 		endpoint: '/approvals',
 		input: { qs: { limit: 25 } },
 	});
 	assert.deepEqual(
 		buildOperationRequest(
+			testNode,
 			'approval',
 			'getMany',
 			{ status: 'pending', since: '2026-11-01T00:00:00Z', limit: 10 },
@@ -364,20 +375,20 @@ test('approval get many maps filters to the query string with a bounded limit', 
 			input: { qs: { status: 'PENDING', since: '2026-11-01T00:00:00.000Z', limit: 10 } },
 		},
 	);
-	const all = buildOperationRequest('approval', 'getMany', { returnAll: true, limit: 5, cursor: 'c1' }, 'e', 0);
+	const all = buildOperationRequest(testNode, 'approval', 'getMany', { returnAll: true, limit: 5, cursor: 'c1' }, 'e', 0);
 	assert.deepEqual(all.input.qs, { limit: 100, cursor: 'c1' });
 	for (const limit of [0, 101, 1.5, 'abc']) {
 		assert.throws(
-			() => buildOperationRequest('approval', 'getMany', { limit }, 'e', 0),
+			() => buildOperationRequest(testNode, 'approval', 'getMany', { limit }, 'e', 0),
 			/Limit must be a whole number/,
 		);
 	}
 	assert.throws(
-		() => buildOperationRequest('approval', 'getMany', { status: 'DONE' }, 'e', 0),
+		() => buildOperationRequest(testNode, 'approval', 'getMany', { status: 'DONE' }, 'e', 0),
 		/Status must be/,
 	);
 	assert.throws(
-		() => buildOperationRequest('approval', 'getMany', { since: 'yesterday' }, 'e', 0),
+		() => buildOperationRequest(testNode, 'approval', 'getMany', { since: 'yesterday' }, 'e', 0),
 		/valid ISO 8601/,
 	);
 });
@@ -404,6 +415,7 @@ test('list helpers read the item array and the next cursor', () => {
 
 test('policy check builds the evaluate body from channel posts', () => {
 	const request = buildOperationRequest(
+		testNode,
 		'policy',
 		'check',
 		{
@@ -443,6 +455,7 @@ test('policy check builds the evaluate body from channel posts', () => {
 		},
 	});
 	const draft = buildOperationRequest(
+		testNode,
 		'policy',
 		'check',
 		{ type: 'draft', channelPosts: { channelPost: [{ channelId: 'c', content: 'x' }] } },
@@ -455,20 +468,21 @@ test('policy check builds the evaluate body from channel posts', () => {
 test('policy check validates type, date, channels and media', () => {
 	const posts = { channelPost: [{ channelId: 'c', content: 'x' }] };
 	assert.throws(
-		() => buildOperationRequest('policy', 'check', { type: 'later', channelPosts: posts }, 'e', 0),
+		() => buildOperationRequest(testNode, 'policy', 'check', { type: 'later', channelPosts: posts }, 'e', 0),
 		/Post Type must be/,
 	);
 	assert.throws(
-		() => buildOperationRequest('policy', 'check', { type: 'schedule', channelPosts: posts }, 'e', 0),
+		() => buildOperationRequest(testNode, 'policy', 'check', { type: 'schedule', channelPosts: posts }, 'e', 0),
 		/Publish Date is required/,
 	);
 	assert.throws(
-		() => buildOperationRequest('policy', 'check', { type: 'draft', channelPosts: {} }, 'e', 0),
+		() => buildOperationRequest(testNode, 'policy', 'check', { type: 'draft', channelPosts: {} }, 'e', 0),
 		/At least one Channel Post/,
 	);
 	assert.throws(
 		() =>
 			buildOperationRequest(
+				testNode,
 				'policy',
 				'check',
 				{ type: 'draft', channelPosts: { channelPost: [{ channelId: '', content: 'x' }] } },
@@ -480,6 +494,7 @@ test('policy check validates type, date, channels and media', () => {
 	assert.throws(
 		() =>
 			buildOperationRequest(
+				testNode,
 				'policy',
 				'check',
 				{
@@ -494,6 +509,7 @@ test('policy check validates type, date, channels and media', () => {
 	assert.throws(
 		() =>
 			buildOperationRequest(
+				testNode,
 				'policy',
 				'check',
 				{
@@ -508,7 +524,7 @@ test('policy check validates type, date, channels and media', () => {
 });
 
 test('policy get many lists rules', () => {
-	assert.deepEqual(buildOperationRequest('policy', 'getMany', {}, 'e', 0), {
+	assert.deepEqual(buildOperationRequest(testNode, 'policy', 'getMany', {}, 'e', 0), {
 		method: 'GET',
 		endpoint: '/policies',
 		input: {},
@@ -516,16 +532,16 @@ test('policy get many lists rules', () => {
 });
 
 test('group create, rename and archive map to the customer routes', () => {
-	assert.deepEqual(buildOperationRequest('group', 'create', { groupName: '  Acme  ' }, 'e', 0), {
+	assert.deepEqual(buildOperationRequest(testNode, 'group', 'create', { groupName: '  Acme  ' }, 'e', 0), {
 		method: 'POST',
 		endpoint: '/customers',
 		input: { body: { name: 'Acme' } },
 	});
 	assert.deepEqual(
-		buildOperationRequest('group', 'update', { targetGroupId: 'g/1', groupName: 'New' }, 'e', 0),
+		buildOperationRequest(testNode, 'group', 'update', { targetGroupId: 'g/1', groupName: 'New' }, 'e', 0),
 		{ method: 'PUT', endpoint: '/customers/g%2F1', input: { body: { name: 'New' } } },
 	);
-	assert.deepEqual(buildOperationRequest('group', 'archive', { targetGroupId: 'g1' }, 'e', 0), {
+	assert.deepEqual(buildOperationRequest(testNode, 'group', 'archive', { targetGroupId: 'g1' }, 'e', 0), {
 		method: 'POST',
 		endpoint: '/customers/g1/archive',
 		input: {},
@@ -533,18 +549,18 @@ test('group create, rename and archive map to the customer routes', () => {
 });
 
 test('group operations validate names and ids', () => {
-	assert.throws(() => buildOperationRequest('group', 'create', { groupName: '   ' }, 'e', 0), /Group Name is required/);
+	assert.throws(() => buildOperationRequest(testNode, 'group', 'create', { groupName: '   ' }, 'e', 0), /Group Name is required/);
 	assert.throws(
-		() => buildOperationRequest('group', 'create', { groupName: 'x'.repeat(101) }, 'e', 0),
+		() => buildOperationRequest(testNode, 'group', 'create', { groupName: 'x'.repeat(101) }, 'e', 0),
 		/at most 100/,
 	);
-	assert.doesNotThrow(() => buildOperationRequest('group', 'create', { groupName: 'x'.repeat(100) }, 'e', 0));
+	assert.doesNotThrow(() => buildOperationRequest(testNode, 'group', 'create', { groupName: 'x'.repeat(100) }, 'e', 0));
 	assert.throws(
-		() => buildOperationRequest('group', 'update', { targetGroupId: '', groupName: 'a' }, 'e', 0),
+		() => buildOperationRequest(testNode, 'group', 'update', { targetGroupId: '', groupName: 'a' }, 'e', 0),
 		/Group ID is required/,
 	);
 	assert.throws(
-		() => buildOperationRequest('group', 'archive', { targetGroupId: ' ' }, 'e', 0),
+		() => buildOperationRequest(testNode, 'group', 'archive', { targetGroupId: ' ' }, 'e', 0),
 		/Group ID is required/,
 	);
 });

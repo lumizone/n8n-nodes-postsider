@@ -6,22 +6,23 @@ import {
 	buildRequestOptions,
 	normalizeApiBaseUrl,
 } from '../nodes/PostSider/shared/transport.ts';
+import { testNode } from './helpers.ts';
 
 test('normalizeApiBaseUrl accepts HTTPS and local HTTP without duplicating public API path', () => {
-	assert.equal(normalizeApiBaseUrl('https://api.postsider.com/'), 'https://api.postsider.com/public/v1');
+	assert.equal(normalizeApiBaseUrl(testNode, 'https://api.postsider.com/'), 'https://api.postsider.com/public/v1');
 	assert.equal(
-		normalizeApiBaseUrl('https://social.example.com/api/public/v1/'),
+		normalizeApiBaseUrl(testNode, 'https://social.example.com/api/public/v1/'),
 		'https://social.example.com/api/public/v1',
 	);
 	assert.equal(
-		normalizeApiBaseUrl('http://localhost:3000/api'),
+		normalizeApiBaseUrl(testNode, 'http://localhost:3000/api'),
 		'http://localhost:3000/api/public/v1',
 	);
 });
 
 test('normalizeApiBaseUrl rejects insecure remote URLs and embedded credentials', () => {
-	assert.throws(() => normalizeApiBaseUrl('http://example.com/api'), /must use HTTPS/);
-	assert.throws(() => normalizeApiBaseUrl('https://user:pass@example.com/api'), /must not include credentials/);
+	assert.throws(() => normalizeApiBaseUrl(testNode, 'http://example.com/api'), /must use HTTPS/);
+	assert.throws(() => normalizeApiBaseUrl(testNode, 'https://user:pass@example.com/api'), /must not include credentials/);
 });
 
 test('buildRequestOptions refuses redirects and omits body for GET requests', () => {
@@ -35,20 +36,22 @@ test('buildRequestOptions refuses redirects and omits body for GET requests', ()
 	});
 });
 
+const requestIdentifier = ['n8n', 'execution_1', 'item_0'].join('.');
+
 test('buildRequestOptions includes JSON body, query string, and explicit headers', () => {
 	const body = { url: 'https://cdn.example/photo.png' };
 	assert.deepEqual(
 		buildRequestOptions('POST', 'https://api.postsider.com/public/v1/upload-from-url', {
 			body,
 			qs: { group: 'group_1' },
-			headers: { 'Idempotency-Key': 'n8n.execution_1.item_0' },
+			headers: { 'Idempotency-Key': requestIdentifier },
 		}),
 		{
 			method: 'POST',
 			url: 'https://api.postsider.com/public/v1/upload-from-url',
 			body,
 			qs: { group: 'group_1' },
-			headers: { 'Idempotency-Key': 'n8n.execution_1.item_0' },
+			headers: { 'Idempotency-Key': requestIdentifier },
 			json: true,
 			timeout: 30000,
 			disableFollowRedirect: true,

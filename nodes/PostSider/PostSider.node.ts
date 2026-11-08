@@ -9,7 +9,6 @@ import type {
 import { NodeApiError, NodeConnectionTypes, NodeOperationError } from 'n8n-workflow';
 
 import { getChannels, getGroups } from './methods/loadOptions';
-import { postSiderCredentialTest } from './methods/credentialTest';
 import { fieldProperties, operationProperties, resourceProperty } from './resources/descriptions';
 import {
 	MAX_APPROVAL_PAGES,
@@ -134,7 +133,7 @@ export class PostSider implements INodeType {
 	description: INodeTypeDescription = {
 		displayName: 'PostSider',
 		name: 'postSider',
-		icon: 'file:postsider.svg',
+		icon: { light: 'file:postsider.svg', dark: 'file:postsider.dark.svg' },
 		group: ['output'],
 		version: 1,
 		subtitle: '={{$parameter["operation"] + ": " + $parameter["resource"]}}',
@@ -143,14 +142,11 @@ export class PostSider implements INodeType {
 		inputs: [NodeConnectionTypes.Main],
 		outputs: [NodeConnectionTypes.Main],
 		usableAsTool: true,
-		credentials: [{ name: 'postSiderApi', required: true, testedBy: 'postSiderCredentialTest' }],
+		credentials: [{ name: 'postSiderApi', required: true }],
 		properties: [resourceProperty, ...operationProperties, ...fieldProperties],
 	};
 
 	methods = {
-		credentialTest: {
-			postSiderCredentialTest,
-		},
 		loadOptions: {
 			getChannels,
 			getGroups,
@@ -169,7 +165,7 @@ export class PostSider implements INodeType {
 					parameters.nodeName = this.getNode().name;
 					// Validate before any network call; then bind the decision to the
 					// current stage and round. A failed read falls back to a random key.
-					const read = buildApprovalReadRequest(parameters);
+					const read = buildApprovalReadRequest(this.getNode(), parameters);
 					try {
 						const current = await (postSiderApiRequest<unknown>).call(
 							this,
@@ -183,6 +179,7 @@ export class PostSider implements INodeType {
 					}
 				}
 				const request = buildOperationRequest(
+					this.getNode(),
 					resource,
 					operation,
 					parameters,
@@ -198,6 +195,7 @@ export class PostSider implements INodeType {
 					for (let page = 0; page < pages; page++) {
 						const pageRequest = cursor
 							? buildOperationRequest(
+									this.getNode(),
 									resource,
 									operation,
 									{ ...parameters, cursor },

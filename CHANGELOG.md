@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.2.3 - 2026-11-08
+
+No change to node operations. Fixes the findings of the n8n verification scanner (`@n8n/scan-community-package`) on 0.2.2.
+
+### Fixed
+
+- Node category is now "Marketing & Content" (the former "Marketing" is not a supported category).
+- Node and credential ship a themed icon (`postsider.svg` and a new `postsider.dark.svg`).
+- Validation errors are thrown as `NodeOperationError` instead of plain `Error`; messages are unchanged.
+
+### Changed
+
+- The credential test is now declarative (`GET /public/v1/is-connected` on the normalized base URL) instead of a programmatic test that used the deprecated `request` helper.
+- Removed the npm `overrides` block from `package.json`.
+- Upgraded the `@n8n/node-cli` dev tooling to 0.55.5.
+
 ## 0.2.2 - 2026-11-08
 
 No functional changes. First version published from GitHub Actions with npm provenance (Trusted Publishing), which the n8n verified-node submission requires; 0.2.1 was published by hand without provenance.
