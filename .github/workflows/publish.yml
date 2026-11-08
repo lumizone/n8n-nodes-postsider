@@ -40,8 +40,3 @@ jobs:
 
       - name: Publish with provenance
         run: npm run release
-        env:
-          # First publish of a new package cannot use a Trusted Publisher yet: use a
-          # granular npm token that can publish and bypasses 2FA. After the first
-          # release, configure the Trusted Publisher on npmjs.com and drop this token.
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

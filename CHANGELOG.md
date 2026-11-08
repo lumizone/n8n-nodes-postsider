@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.2.2 - 2026-11-08
+
+No functional changes. First version published from GitHub Actions with npm provenance (Trusted Publishing), which the n8n verified-node submission requires; 0.2.1 was published by hand without provenance.
+
+### Changed
+
+- Publish workflow uses npm Trusted Publishing (OIDC) only; the npm token is no longer used.
+- README no longer says the package is unpublished.
+
 ## 0.2.1 - 2026-11-06
 
 First release on npm. It carries everything listed for 0.2.0 below; 0.2.0 was tagged in git but never published because its publish run failed before reaching npm.

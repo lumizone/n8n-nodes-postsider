@@ -32,7 +32,7 @@ Until verification is complete, install the package from **Settings > Community 
 n8n-nodes-postsider
 ```
 
-The package has not been published yet. For local development, use `npm run dev`.
+The package is published on npm as [`n8n-nodes-postsider`](https://www.npmjs.com/package/n8n-nodes-postsider). For local development, use `npm run dev`.
 
 ## Credentials
 
@@ -182,7 +182,7 @@ npm audit --omit=dev --omit=peer --audit-level=high
 npm pack --dry-run
 ```
 
-The n8n registry scanner accepts published npm package names, so its final check runs after the first prerelease is published with npm provenance. The repository is prepared for GitHub Actions trusted publishing, but no release is performed automatically from a branch push.
+Releases are published only from GitHub Actions (`.github/workflows/publish.yml`, triggered by a version tag) through npm Trusted Publishing, so every version carries an npm provenance statement, which n8n requires for verified community nodes. No release is performed from a branch push.
 
 ## Security
 
