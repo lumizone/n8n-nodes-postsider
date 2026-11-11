@@ -46,7 +46,8 @@
       "dist/credentials/PostSiderApi.credentials.js"
     ],
     "nodes": [
-      "dist/nodes/PostSider/PostSider.node.js"
+      "dist/nodes/PostSider/PostSider.node.js",
+      "dist/nodes/PostSiderTrigger/PostSiderTrigger.node.js"
     ]
   },
   "devDependencies": {

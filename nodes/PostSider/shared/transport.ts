@@ -4,11 +4,12 @@ import type {
 	IHttpRequestMethods,
 	IHttpRequestOptions,
 	ILoadOptionsFunctions,
+	IPollFunctions,
 	INode,
 } from 'n8n-workflow';
 import { NodeOperationError } from 'n8n-workflow';
 
-type PostSiderFunctions = IExecuteFunctions | ILoadOptionsFunctions;
+type PostSiderFunctions = IExecuteFunctions | ILoadOptionsFunctions | IPollFunctions;
 
 export interface RequestInput {
 	body?: IDataObject | IDataObject[];
