@@ -97,6 +97,8 @@ Other media modes: **Public URLs** (one HTTPS URL per line or comma-separated) a
 - **Idempotency Key**: see below.
 - **Wait for Result** and **Wait Timeout (Seconds)**.
 
+Discord and Slack need a `channel` ID: set it in **Settings JSON**, for example `{"channel": "123456789"}`.
+
 Safe defaults are filled in for you: X replies from everyone, YouTube public with the title taken from the first 100 characters of the text (set **Title** for a better one), TikTok public and direct post with comments on and duet, stitch and the brand toggles off, Instagram as a normal post.
 
 ### Wait for Result
@@ -105,7 +107,8 @@ With **Now** or **Next Free Slot**, the node polls PostSider every 5 seconds unt
 
 - `state: PUBLISHED` and `releaseURL` (the link to the live post), or
 - `state: ERROR` and `error`, or
-- `timedOut: true` with the last known state. A timeout is not an error.
+- `timedOut: true` with the last known state. A timeout is not an error, or
+- `waitSkipped: 'slot is later than the wait timeout'` with **Next Free Slot** when the slot is further away than the timeout, so the node does not wait for nothing.
 
 ### Output
 
@@ -149,7 +152,7 @@ The PostSider node can be used as a tool by n8n AI agents. Operations have plain
 | Policy | Check | Dry run: which publishing rules a post would hit (creates nothing) |
 | Policy | Get Many Rules | List the publishing policy rules |
 | Post | Publish | Publish now, schedule, next free slot or draft, on one or more channels |
-| Post | Get | Retrieve a post and all channel versions in its group |
+| Post | Get | Retrieve that post and its thread (the follow-up posts). Other channels of the same group are not included; use Get Many to see them |
 | Post | Get Many | List posts for the next 7 days, the last 7 days or a custom range; filter by state, channel and group |
 | Post | Update | Change text, time, first comment, media or settings; stored settings are kept |
 | Post | Delete | Delete a post. This deletes the whole group (all channel versions) |
@@ -171,17 +174,27 @@ Workflows built with 0.2.x keep using node version 1: the same fields, the same 
 
 Create the key with the scopes your workflow needs. Typical ones:
 
-| Operation | Scope |
+| Operation | Scopes |
 | --- | --- |
-| Post Publish, Update, Delete, Duplicate, Retry Failed | `posts:write` |
-| Post Get, Get Many, Check, Rewrite; PostSider Trigger | `posts:read` |
+| Post Publish | `posts:write` and `channels:read`; plus `media:write` for binary or URL media, and `posts:read` for Next Free Slot and Wait for Result |
+| Post Update | `posts:write`; plus `posts:read` when you change platform settings, and `media:write` for new media |
+| Post Delete, Duplicate, Retry Failed | `posts:write` |
+| Post Check, Rewrite | `posts:write` |
+| Post Get, Get Many; PostSider Trigger | `posts:read` |
+| Post Get Analytics | `analytics:read` |
+| Media Upload, Delete | `media:write` |
+| Media Get Many | `posts:read` |
 | Approval Get Status, Get Many | `approvals:read` |
 | Approval Request | `approvals:write` |
-| Approval Approve, Reject | `approvals:decide` (never granted by default) |
+| Approval Approve, Reject | `approvals:decide` (never granted by default) and `approvals:read` |
 | Policy Check | `posts:read` |
 | Policy Get Many Rules | `policies:read` |
-| Channel Get Many, Get Rules, Find Next Slot; Group Get Many | `channels:read` |
+| Channel Get Many, Get Rules; Group Get Many | `channels:read` |
+| Channel Find Next Slot | `posts:read` |
+| Channel Get Analytics | `analytics:read` |
 | Channel Enable, Disable; Group Create, Rename, Archive | `channels:write` |
+| Publishing Get State | `publishing:read` |
+| Publishing Pause | `publishing:write` |
 
 If an operation returns a permission error, check the scope list of the key in PostSider **Settings > API**. For a self-hosted PostSider, set **Base URL** to your public origin including `/api` (see Credentials).
 
@@ -232,6 +245,8 @@ Publish and Create send an `Idempotency-Key` header, so a retry of the same requ
 
 - safe for retries: re-running the same item inside the same execution reuses the same API operation instead of creating a duplicate;
 - safe for loops and several PostSider nodes in one workflow: each node, run and item gets its own key, so they never collide.
+
+PostSider rejects a reused key when the request body differs. So with **Retry On Fail**, the node remembers the date it resolved (now or the free slot) and the media it uploaded for each derived key (in memory, up to 500 items, per n8n process) and sends the identical request again, without uploading twice. This only applies to the automatic key. If a retry still gets "already used with a different request" (for example n8n restarted between attempts), the node returns one row per channel with `state: UNKNOWN`, `alreadySubmitted: true` and the key, instead of an error. Check the post in PostSider before retrying. A key you set yourself is never remembered and always passes the server answer through.
 
 For retries across separate n8n executions, provide your own business key, such as:
 

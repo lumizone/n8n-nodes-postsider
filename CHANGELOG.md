@@ -25,6 +25,15 @@ All notable changes to this project will be documented in this file.
 - The default idempotency key now includes the node name and run number, so loops and several PostSider nodes in one workflow do not collide.
 - Package description and README rewritten around publishing. The old note that immediate publishing and deletion are not exposed is removed.
 
+### Fixed before release
+
+- Retry On Fail no longer ends in a permanent 409: the date and uploaded media of a derived idempotency key are reused, and an "already used with a different request" conflict becomes `UNKNOWN` rows with `alreadySubmitted: true`.
+- Wait for Result detects 4xx poll errors in n8n API errors, and is skipped when the Next Free Slot is later than the timeout (`waitSkipped`).
+- Post > Get Many has a Group filter.
+- Publish with Public URLs and an empty list now fails clearly, and an unexpected create response is reported with its raw body.
+- PostSider Trigger keeps `error`, `errorCategory` and `errorRetryable` on failed posts.
+- README scope table and Get description corrected.
+
 ### Notes
 
 - Version 1 of the node is unchanged. Existing workflows keep working with no edits.

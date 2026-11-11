@@ -38,6 +38,52 @@ const WAIT_MIN_SECONDS = 1;
 const WAIT_MAX_SECONDS = 300;
 const DEFAULT_WAIT_INTERVAL_MS = 5000;
 
+const CACHE_MAX_ENTRIES = 500;
+const CONFLICT_TEXT = 'already used with a different request';
+const ALREADY_SUBMITTED_MESSAGE =
+	'This item was already submitted in an earlier attempt of this run. Check the post in PostSider before retrying.';
+
+interface RetryCacheEntry {
+	fingerprint: string;
+	date: string;
+	media: PostSiderMedia[];
+}
+
+/**
+ * Retry On Fail re-runs the item with the same derived Idempotency-Key. The backend hashes the whole
+ * body per key, so a retry must send a byte-identical body: same resolved date (now, slot) and the
+ * same uploaded media. Module-level and bounded; only derived keys use it.
+ */
+const retryCache = new Map<string, RetryCacheEntry>();
+
+export function resetPublishCache(): void {
+	retryCache.clear();
+}
+
+function rememberAttempt(key: string, entry: RetryCacheEntry): void {
+	retryCache.delete(key);
+	retryCache.set(key, entry);
+	while (retryCache.size > CACHE_MAX_ENTRIES) {
+		const oldest = retryCache.keys().next().value;
+		if (oldest === undefined) break;
+		retryCache.delete(oldest);
+	}
+}
+
+/** Integer HTTP status of an error: `statusCode` on plain errors, `httpCode` (string) on NodeApiError. */
+function httpStatusOf(error: unknown): number | undefined {
+	const raw = error as { statusCode?: unknown; httpCode?: unknown } | undefined;
+	const status = Number(raw?.statusCode ?? raw?.httpCode);
+	return Number.isInteger(status) ? status : undefined;
+}
+
+export function clampWaitSeconds(timeoutSeconds: number): number {
+	return Math.min(
+		WAIT_MAX_SECONDS,
+		Math.max(WAIT_MIN_SECONDS, Number.isFinite(timeoutSeconds) ? timeoutSeconds : 60),
+	);
+}
+
 export function defaultIdempotencyKey(
 	node: INode,
 	supplied: string,
@@ -206,11 +252,7 @@ export async function waitForResult(
 	intervalMs = DEFAULT_WAIT_INTERVAL_MS,
 ): Promise<IDataObject[]> {
 	const result = rows.map((row) => ({ ...row }));
-	const limitMs =
-		Math.min(
-			WAIT_MAX_SECONDS,
-			Math.max(WAIT_MIN_SECONDS, Number.isFinite(timeoutSeconds) ? timeoutSeconds : 60),
-		) * 1000;
+	const limitMs = clampWaitSeconds(timeoutSeconds) * 1000;
 	const isPending = (row: IDataObject) =>
 		!FINAL_STATES.has(String(row.state)) && row.approvalRequested !== true && !!row.postId;
 	let elapsed = 0;
@@ -229,8 +271,8 @@ export async function waitForResult(
 				if (post.releaseURL) row.releaseURL = String(post.releaseURL);
 				if (post.error) row.error = String(post.error);
 			} catch (error) {
-				const status = (error as { statusCode?: number }).statusCode;
-				if (typeof status === 'number' && status >= 400 && status < 500) {
+				const status = httpStatusOf(error);
+				if (status !== undefined && status >= 400 && status < 500) {
 					const message = (error as Error).message;
 					for (const pending of result.filter(isPending)) pending.pollError = message;
 					return result;
@@ -315,6 +357,9 @@ export async function executePublish(
 		mediaCount = binaryNames.length;
 	} else if (mediaSource === 'url') {
 		mediaUrls = parseUrlList(node, get('mediaUrls', ''));
+		if (mediaUrls.length === 0) {
+			throw new NodeOperationError(node, 'Media URLs must list at least one URL', { itemIndex: index });
+		}
 		mediaCount = mediaUrls.length;
 	} else if (mediaSource === 'uploaded') {
 		media = parseMediaJson(node, get('mediaJson', '[]'));
@@ -339,6 +384,7 @@ export async function executePublish(
 	const tags = (((options.tags as IDataObject | undefined)?.tag ?? []) as PostSiderTag[]).filter(
 		(tag) => tag && tag.value,
 	);
+	const derivedKey = String(options.idempotencyKey ?? '').trim() === '';
 	const idempotencyKey = defaultIdempotencyKey(
 		node,
 		String(options.idempotencyKey ?? ''),
@@ -368,21 +414,72 @@ export async function executePublish(
 		scheduleDate ?? now().toISOString(),
 	);
 
-	if (mediaSource === 'binary') media = await uploadBinaries(ctx, api, index, binaryNames);
-	else if (mediaSource === 'url') media = await uploadFromUrls(api, mediaUrls);
+	const fingerprint = JSON.stringify([
+		channels,
+		text,
+		when,
+		get('date', ''),
+		mediaSource,
+		binaryNames,
+		mediaUrls,
+		media,
+		options,
+	]);
+	const cached = derivedKey ? retryCache.get(idempotencyKey) : undefined;
+	let date: string;
+	if (cached && cached.fingerprint === fingerprint) {
+		media = cached.media;
+		date = cached.date;
+	} else {
+		if (mediaSource === 'binary') media = await uploadBinaries(ctx, api, index, binaryNames);
+		else if (mediaSource === 'url') media = await uploadFromUrls(api, mediaUrls);
 
-	let slot: unknown;
-	if (when === 'nextSlot') {
-		slot = await api<unknown>('GET', `/find-slot/${encodeURIComponent(channels[0])}`);
+		let slot: unknown;
+		if (when === 'nextSlot') {
+			slot = await api<unknown>('GET', `/find-slot/${encodeURIComponent(channels[0])}`);
+		}
+		date = scheduleDate ?? resolvePublishDate(node, when, undefined, now(), slot);
 	}
-	const date = scheduleDate ?? resolvePublishDate(node, when, undefined, now(), slot);
+	if (derivedKey) rememberAttempt(idempotencyKey, { fingerprint, date, media });
 
 	const request = buildPublishRequest(node, { ...base, media }, providers, date);
 
-	const response = await api<unknown>(request.method, request.endpoint, request.input);
+	// Keep the original error: executeV2 wraps it (NodeApiError or NodeOperationError) for every operation.
+	const attempt = await api<unknown>(request.method, request.endpoint, request.input).then(
+		(value) => ({ value }),
+		(error: unknown) => ({ error }),
+	);
+	if ('error' in attempt) {
+		const failure = attempt.error as { message?: string; description?: unknown } | undefined;
+		const message = `${failure?.message ?? ''} ${String(failure?.description ?? '')}`;
+		if (derivedKey && httpStatusOf(attempt.error) === 409 && message.includes(CONFLICT_TEXT)) {
+			return channels.map((channelId) => ({
+				channelId,
+				channelName: names[channelId] ?? null,
+				state: 'UNKNOWN',
+				alreadySubmitted: true,
+				idempotencyKey,
+				message: ALREADY_SUBMITTED_MESSAGE,
+			}));
+		}
+		throw attempt.error;
+	}
+	const response = attempt.value;
+	if (!Array.isArray(response)) {
+		throw new NodeOperationError(
+			node,
+			`PostSider returned an unexpected response when creating the post: ${JSON.stringify(response)?.slice(0, 500) ?? String(response)}`,
+			{ itemIndex: index },
+		);
+	}
 	let rows = summarizeCreated(response, names, when === 'draft' ? 'DRAFT' : 'QUEUE', date);
 	if (options.waitForResult && (when === 'now' || when === 'nextSlot')) {
-		rows = await waitForResult(api, rows, Number(options.waitTimeout ?? 60), sleepFn);
+		const timeout = Number(options.waitTimeout ?? 60);
+		if (when === 'nextSlot' && Date.parse(date) > now().getTime() + clampWaitSeconds(timeout) * 1000) {
+			rows = rows.map((row) => ({ ...row, waitSkipped: 'slot is later than the wait timeout' }));
+		} else {
+			rows = await waitForResult(api, rows, timeout, sleepFn);
+		}
 	}
 	return rows;
 }

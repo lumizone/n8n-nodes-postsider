@@ -56,6 +56,8 @@ function listRange(node: INode, params: IDataObject, now: Date): IDataObject {
 	if (state && state !== 'any') qs.state = state;
 	const channel = String(params.channel ?? '').trim();
 	if (channel) qs.integration = channel;
+	const groupId = String(params.groupId ?? '').trim();
+	if (groupId) qs.customer = groupId;
 	return qs;
 }
 
@@ -279,6 +281,7 @@ export async function executePostOperation(
 			params.endDate = get('endDate', '');
 			params.state = filters.state;
 			params.channel = filters.channel;
+			params.groupId = filters.groupId;
 			params.returnAll = get('returnAll', false);
 			params.limit = get('limit', DEFAULT_LIMIT);
 			params.simplify = get('simplify', true);

@@ -67,7 +67,7 @@ export async function uploadBinaries(
 			const formData = new FormData();
 			formData.append(
 				'file',
-				new Blob([new Uint8Array(buffer)], { type: meta.mimeType }),
+				new Blob([buffer], { type: meta.mimeType }),
 				filename,
 			);
 			response = await api<unknown>('POST', '/upload', { formData, timeout: UPLOAD_TIMEOUT_MS });

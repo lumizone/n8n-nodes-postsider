@@ -766,6 +766,15 @@ const postOperationFields: INodeProperties[] = [
 					'Only return posts of this channel. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
 			},
 			{
+				displayName: 'Group Name or ID',
+				name: 'groupId',
+				type: 'options',
+				typeOptions: { loadOptionsMethod: 'getGroups' },
+				default: '',
+				description:
+					'Only return posts of this channel group. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
+			},
+			{
 				displayName: 'State',
 				name: 'state',
 				type: 'options',

@@ -45,7 +45,11 @@ function matches(post: Record<string, unknown>, events: string[], channels: stri
 }
 
 function toItem(post: Record<string, unknown>, event: string): Record<string, unknown> {
-	return { ...simplifyPostResponse(post), event };
+	const item: Record<string, unknown> = { ...simplifyPostResponse(post), event };
+	for (const key of ['error', 'errorCategory', 'errorRetryable']) {
+		if (Object.prototype.hasOwnProperty.call(post, key)) item[key] = post[key];
+	}
+	return item;
 }
 
 /**
