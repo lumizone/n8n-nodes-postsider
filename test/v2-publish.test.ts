@@ -351,8 +351,7 @@ async function runExecutor(
 		const out = await executeV2.call(context);
 		return { output: out[0], requests };
 	} catch (error) {
-		(error as any).requests = requests;
-		throw error;
+		throw Object.assign(new Error((error as Error).message), { requests });
 	}
 }
 
