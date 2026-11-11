@@ -660,7 +660,7 @@ const publishFields: INodeProperties[] = [
 								displayName: 'Delay (Minutes)',
 								name: 'delayMinutes',
 								type: 'number',
-								typeOptions: { minValue: 0, maxValue: 1440 },
+								typeOptions: { minValue: 0, maxValue: 1440, numberPrecision: 0 },
 								default: 0,
 								description: 'Minutes to wait before posting this part. 0 posts it right after the previous one.',
 							},

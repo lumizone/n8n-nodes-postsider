@@ -71,7 +71,7 @@ function buildChannelRequest(node: INode, operation: string, params: IDataObject
 			};
 		case 'getOptions': {
 			const methodName = String(params.tool ?? '').trim();
-			if (!methodName) throw new NodeOperationError(node, 'Option List is required');
+			if (!methodName) throw new NodeOperationError(node, 'Option List Name or ID is required');
 			const entries = (((params.toolData as IDataObject | undefined)?.field ?? []) as Array<{
 				key?: unknown;
 				value?: unknown;
@@ -150,6 +150,15 @@ export function shapeOtherOutput(
 ): IDataObject[] {
 	if (resource === 'media' && operation === 'delete') {
 		return [{ id: String(params.mediaId ?? ''), deleted: true }];
+	}
+	if (resource === 'channel' && operation === 'getOptions') {
+		// integration-trigger answers `{ output: <tool result> }`.
+		const wrapped = response as { output?: unknown } | null | undefined;
+		const result =
+			wrapped && typeof wrapped === 'object' && !Array.isArray(wrapped) && 'output' in wrapped
+				? wrapped.output
+				: response;
+		return Array.isArray(result) ? result.map(asObject) : [asObject(result)];
 	}
 	const normalized = normalizePostResponse(response);
 	if (resource === 'media' && operation === 'getMany') {

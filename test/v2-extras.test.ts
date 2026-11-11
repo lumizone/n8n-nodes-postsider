@@ -14,6 +14,7 @@ import {
 	resetPublishCache,
 	type PublishInput,
 } from '../nodes/PostSider/v2/publish';
+import { executeV2 } from '../nodes/PostSider/v2/execute';
 import { testNode } from './helpers';
 
 const NOW = new Date('2026-11-11T10:00:00.000Z');
@@ -196,6 +197,8 @@ test('Thread Parts option is a multi-value collection with part text and delay',
 	assert.equal(delay.type, 'number');
 	assert.equal(delay.default, 0);
 	assert.equal(delay.typeOptions.minValue, 0);
+	assert.equal(delay.typeOptions.maxValue, 1440);
+	assert.equal(delay.typeOptions.numberPrecision, 0);
 	assert.equal(/[–—]/.test(JSON.stringify(field)), false);
 });
 
@@ -257,16 +260,16 @@ test('getOptions triggers the platform tool with its data map', () => {
 		methodName: 'boards',
 		data: {},
 	});
-	assert.throws(() => build('getOptions', { channelId: 'c1', tool: ' ' }), /Option List/);
+	assert.throws(() => build('getOptions', { channelId: 'c1', tool: ' ' }), /Option List Name or ID is required/);
 	assert.throws(() => build('getOptions', { tool: 'boards' }), /Channel/);
 });
 
 test('getOptions output splits arrays and keeps single objects', () => {
-	assert.deepEqual(shapeOtherOutput('channel', 'getOptions', [{ id: 'b1' }, { id: 'b2' }], {}), [
-		{ id: 'b1' },
-		{ id: 'b2' },
-	]);
-	assert.deepEqual(shapeOtherOutput('channel', 'getOptions', { a: 1 }, {}), [{ a: 1 }]);
+	assert.deepEqual(
+		shapeOtherOutput('channel', 'getOptions', { output: [{ id: 'b1' }, { id: 'b2' }] }, {}),
+		[{ id: 'b1' }, { id: 'b2' }],
+	);
+	assert.deepEqual(shapeOtherOutput('channel', 'getOptions', { output: { x: 1 } }, {}), [{ x: 1 }]);
 });
 
 test('getOptions fields are version 2 only and use a dynamic tool list', () => {
@@ -326,10 +329,76 @@ test('getChannelTools maps the tools of the selected channel', async () => {
 	assert.match(String(result[1].description), /word/);
 });
 
+test('getChannelTools sorts options by name', async () => {
+	const { ctx } = loadCtx('c1', {
+		output: {
+			tools: [
+				{ methodName: 'z', description: 'Zeta' },
+				{ methodName: 'a', description: 'Alpha' },
+			],
+		},
+	});
+	assert.deepEqual((await getChannelTools.call(ctx)).map((o) => o.value), ['a', 'z']);
+});
+
 test('getChannelTools is empty without a channel or tools', async () => {
 	const none = loadCtx('', {});
 	assert.deepEqual(await getChannelTools.call(none.ctx), []);
 	assert.equal(none.requests.length, 0);
 	assert.deepEqual(await getChannelTools.call(loadCtx('c1', {}).ctx), []);
 	assert.deepEqual(await getChannelTools.call(loadCtx('c1', { output: { tools: null } }).ctx), []);
+});
+
+// ---- executor level ----
+
+function execCtx(params: Record<string, unknown>, responses: unknown[]) {
+	const requests: Array<Record<string, any>> = [];
+	const context = {
+		getInputData: () => [{ json: {} }],
+		getNodeParameter: (name: string, _i: number, fallback?: unknown) => params[name] ?? fallback,
+		getExecutionId: () => 'ex1',
+		getCredentials: async () => ({ apiKey: 'k', baseUrl: 'https://api.postsider.com' }),
+		continueOnFail: () => false,
+		getNode: () => testNode,
+		helpers: {
+			httpRequestWithAuthentication: async (_c: string, options: Record<string, unknown>) => {
+				requests.push(options);
+				return responses.shift();
+			},
+			returnJsonArray: (d: IDataObject | IDataObject[]) => (Array.isArray(d) ? d : [d]).map((json) => ({ json })),
+			constructExecutionMetaData: (d: any[], m: any) => d.map((e) => ({ ...e, pairedItem: m.itemData })),
+		},
+	} as any;
+	return { context, requests };
+}
+
+test('executor: Channel Get Options posts the tool call and splits the output', async () => {
+	const { context, requests } = execCtx(
+		{
+			resource: 'channel',
+			operation: 'getOptions',
+			channelId: 'c/1',
+			tool: 'boards',
+			toolData: { field: [{ key: 'word', value: 'ai' }] },
+		},
+		[{ output: [{ id: 'b1' }, { id: 'b2' }] }],
+	);
+	const out = await executeV2.call(context);
+	assert.equal(requests.length, 1);
+	assert.equal(requests[0].method, 'POST');
+	assert.equal(requests[0].url, 'https://api.postsider.com/public/v1/integration-trigger/c%2F1');
+	assert.deepEqual(requests[0].body, { methodName: 'boards', data: { word: 'ai' } });
+	assert.deepEqual(out[0].map((o: any) => o.json), [{ id: 'b1' }, { id: 'b2' }]);
+});
+
+test('executor: Post Change Status sends PUT with the status', async () => {
+	const { context, requests } = execCtx(
+		{ resource: 'post', operation: 'changeStatus', postId: 'a/b', status: 'draft' },
+		[{ id: 'a/b', state: 'DRAFT', approvalRequested: false }],
+	);
+	const out = await executeV2.call(context);
+	assert.equal(requests[0].method, 'PUT');
+	assert.equal(requests[0].url, 'https://api.postsider.com/public/v1/posts/a%2Fb/status');
+	assert.deepEqual(requests[0].body, { status: 'draft' });
+	assert.equal(out[0][0].json.state, 'DRAFT');
 });

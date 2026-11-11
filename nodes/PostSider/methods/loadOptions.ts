@@ -60,5 +60,6 @@ export async function getChannelTools(this: ILoadOptionsFunctions): Promise<INod
 				value: String(tool.methodName),
 				...(keys.length > 0 ? { description: `Needs input: ${keys.join(', ')}` } : {}),
 			};
-		});
+		})
+		.sort((a, b) => a.name.localeCompare(b.name));
 }
