@@ -68,7 +68,7 @@ test('draft sends type draft', () => {
 
 test('nextSlot uses slot date and fails on null slot', () => {
 	assert.equal(
-		resolvePublishDate(testNode, 'nextSlot', undefined, NOW, { date: '2026-11-12T08:00:00.000Z' }),
+		resolvePublishDate(testNode, 'nextSlot', undefined, NOW, { date: '2026-11-12T08:00:00' }),
 		'2026-11-12T08:00:00.000Z',
 	);
 	assert.throws(
@@ -135,9 +135,17 @@ test('youtube needs a title of 2 characters', () => {
 	assert.equal(posts(ok)[0].settings.title, 'Long enough');
 });
 
-test('default idempotency key is n8n:<execution>:item:<index>', () => {
-	assert.equal(defaultIdempotencyKey(testNode, '', 'e42', 3), 'n8n:e42:item:3');
+test('default idempotency key is n8n:<execution>:<node>:run<run>:item:<index>', () => {
+	assert.equal(defaultIdempotencyKey(testNode, '', 'e42', 3), 'n8n:e42:PostSider:run0:item:3');
 	assert.equal(defaultIdempotencyKey(testNode, 'mine', 'e42', 3), 'mine');
+	const other = { ...testNode, name: 'Publish #2 (b)' };
+	const keys = new Set([
+		defaultIdempotencyKey(testNode, '', 'e42', 3, 0),
+		defaultIdempotencyKey(testNode, '', 'e42', 3, 1),
+		defaultIdempotencyKey(other, '', 'e42', 3, 0),
+	]);
+	assert.equal(keys.size, 3);
+	assert.equal(defaultIdempotencyKey(other, '', 'e42', 3, 1), 'n8n:e42:Publish__2__b_:run1:item:3');
 	assert.throws(() => defaultIdempotencyKey(testNode, 'bad key!', 'e42', 3), /Idempotency Key/);
 });
 
@@ -246,11 +254,159 @@ test('executor publishes per item, fetches integrations once and wraps unknown c
 	const ok = await run(['c1']);
 	assert.equal(ok[0].length, 2);
 	assert.equal(requests.filter((r) => String(r.url).endsWith('/integrations')).length, 1);
-	assert.equal((requests[1].headers as any)['Idempotency-Key'], 'n8n:ex1:item:0');
-	assert.equal((requests[2].headers as any)['Idempotency-Key'], 'n8n:ex1:item:1');
+	assert.equal((requests[1].headers as any)['Idempotency-Key'], 'n8n:ex1:PostSider:run0:item:0');
+	assert.equal((requests[2].headers as any)['Idempotency-Key'], 'n8n:ex1:PostSider:run0:item:1');
 	assert.equal(ok[0][0].json.state, 'DRAFT');
 	await assert.rejects(() => run(['nope']), /Channel nope is not connected to this PostSider workspace/);
 	const soft = await run(['nope'], true);
 	assert.equal(soft[0].length, 2);
 	assert.match(String(soft[0][0].json.error), /not connected/);
+});
+
+test('youtube title longer than 100 characters is rejected', () => {
+	assert.throws(
+		() =>
+			buildPublishRequest(
+				testNode,
+				input({ channels: ['yt'], text: 'x', platform: { title: 'y'.repeat(101) } }),
+				providers,
+				NOW.toISOString(),
+			),
+		/YouTube needs a title of 2 to 100 characters/,
+	);
+});
+
+test('settings JSON keyed form: unselected channel keys ignored, mixed shape fails', () => {
+	const request = buildPublishRequest(
+		testNode,
+		input({ channels: ['c1'], settingsJson: { c1: { a: 1 }, yt: { b: 2 } } }),
+		providers,
+		NOW.toISOString(),
+	);
+	assert.equal(posts(request)[0].settings.a, 1);
+	assert.equal(posts(request)[0].settings.yt, undefined);
+	assert.throws(
+		() =>
+			buildPublishRequest(testNode, input({ settingsJson: { c1: { a: 1 }, other: 5 } }), providers, NOW.toISOString()),
+		/mixes channel IDs with other keys/,
+	);
+});
+
+test('waitForResult stops on DRAFT, APPROVAL and HELD', async () => {
+	const { api, calls } = fakeApi({ p1: [{ state: 'HELD' }], p2: [{ state: 'APPROVAL' }], p3: [{ state: 'DRAFT' }] });
+	const rows = await waitForResult(api, rowsFor('p1', 'p2', 'p3'), 60, async () => { throw new Error('no sleep'); }, 5000);
+	assert.equal(calls.length, 3);
+	assert.deepEqual(rows.map((r) => r.state), ['HELD', 'APPROVAL', 'DRAFT']);
+});
+
+test('waitForResult surfaces 4xx poll errors and keeps retrying 5xx', async () => {
+	const fourxx = (async () => {
+		throw Object.assign(new Error('Forbidden'), { statusCode: 403 });
+	}) as never;
+	const rows = await waitForResult(fourxx, rowsFor('p1'), 60, async () => {}, 5000);
+	assert.equal(rows[0].pollError, 'Forbidden');
+	let n = 0;
+	const flaky = (async () => {
+		if (n++ === 0) throw Object.assign(new Error('Bad gateway'), { statusCode: 502 });
+		return { group: 'g', posts: [{ id: 'p1', state: 'PUBLISHED' }] };
+	}) as never;
+	const ok = await waitForResult(flaky, rowsFor('p1'), 60, async () => {}, 5000);
+	assert.equal(ok[0].state, 'PUBLISHED');
+	assert.equal(ok[0].pollError, undefined);
+});
+
+test('waitForResult clamps timeout to 1..300 seconds', async () => {
+	const { api } = fakeApi({ p1: [{ state: 'QUEUE' }] });
+	let sleeps = 0;
+	await waitForResult(api, rowsFor('p1'), 100000, async () => { sleeps++; }, 5000);
+	assert.equal(sleeps, 60);
+	sleeps = 0;
+	await waitForResult(api, rowsFor('p1'), 0, async () => { sleeps++; }, 500);
+	assert.equal(sleeps, 2);
+});
+
+async function runExecutor(
+	params: Record<string, unknown>,
+	responses: unknown[],
+): Promise<{ output: any[]; requests: Array<Record<string, any>> }> {
+	const { executeV2 } = await import('../nodes/PostSider/v2/execute');
+	const requests: Array<Record<string, any>> = [];
+	const context = {
+		getInputData: () => [{ json: {} }],
+		getNodeParameter: (name: string, _i: number, fallback?: unknown) => params[name] ?? fallback,
+		getExecutionId: () => 'ex1',
+		getCredentials: async () => ({ apiKey: 'k', baseUrl: 'https://api.postsider.com' }),
+		continueOnFail: () => false,
+		getNode: () => testNode,
+		helpers: {
+			httpRequestWithAuthentication: async (_c: string, options: Record<string, unknown>) => {
+				requests.push(options);
+				return responses.shift();
+			},
+			returnJsonArray: (d: IDataObject | IDataObject[]) => (Array.isArray(d) ? d : [d]).map((json) => ({ json })),
+			constructExecutionMetaData: (d: any[], m: any) => d.map((e) => ({ ...e, pairedItem: m.itemData })),
+		},
+	} as any;
+	try {
+		const out = await executeV2.call(context);
+		return { output: out[0], requests };
+	} catch (error) {
+		(error as any).requests = requests;
+		throw error;
+	}
+}
+
+const baseParams = {
+	resource: 'post', operation: 'publish', channels: ['c1', 'c2'], text: 'Hi', mediaSource: 'none',
+};
+const integrations = [
+	{ id: 'c1', name: 'X', identifier: 'x' },
+	{ id: 'c2', name: 'LI', identifier: 'linkedin' },
+];
+
+test('executor nextSlot looks up the first channel slot before the POST and sends it as UTC', async () => {
+	const { output, requests } = await runExecutor(
+		{ ...baseParams, when: 'nextSlot', options: {} },
+		[integrations, { date: '2026-11-12T08:00:00' }, [{ postId: 'p1', integration: 'c1' }]],
+	);
+	assert.match(String(requests[1].url), /\/find-slot\/c1$/);
+	assert.equal(requests[2].method, 'POST');
+	assert.equal(requests[2].body.date, '2026-11-12T08:00:00.000Z');
+	assert.equal(requests[2].body.type, 'schedule');
+	assert.equal(output[0].json.publishDate, '2026-11-12T08:00:00.000Z');
+});
+
+test('executor does not poll for draft or schedule even with waitForResult', async () => {
+	for (const when of ['draft', 'schedule']) {
+		const { requests } = await runExecutor(
+			{ ...baseParams, when, date: '2099-01-01T00:00:00', options: { waitForResult: true } },
+			[integrations, [{ postId: 'p1', integration: 'c1' }]],
+		);
+		assert.equal(requests.filter((r) => /\/posts\/p1/.test(String(r.url))).length, 0);
+		assert.equal(requests.length, 2);
+	}
+});
+
+test('invalid settings JSON makes no API call besides GET /integrations, even with url media', async () => {
+	await assert.rejects(
+		() =>
+			runExecutor(
+				{ ...baseParams, when: 'nextSlot', mediaSource: 'url', mediaUrls: 'https://e.com/a.png', options: { settingsJson: '{nope' } },
+				[integrations],
+			),
+		(error: any) => {
+			assert.match(error.message, /Settings JSON/);
+			assert.equal(error.requests.length, 1);
+			assert.match(String(error.requests[0].url), /\/integrations$/);
+			return true;
+		},
+	);
+	await assert.rejects(
+		() =>
+			runExecutor(
+				{ ...baseParams, channels: ['c1'], when: 'draft', mediaSource: 'url', mediaUrls: 'https://e.com/a.png', options: { settingsJson: '{"c1":{},"zzz":1}' } },
+				[integrations],
+			),
+		(error: any) => error.requests.length === 1,
+	);
 });

@@ -158,7 +158,7 @@ function groupName(node: INode, parameters: IDataObject): string {
 	return name;
 }
 
-function nodeToken(nodeName: unknown): string {
+export function nodeToken(nodeName: unknown): string {
 	return String(nodeName ?? '')
 		.replace(/[^A-Za-z0-9._-]/g, '_')
 		.slice(0, 40);

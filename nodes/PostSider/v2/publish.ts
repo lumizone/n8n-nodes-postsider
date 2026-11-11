@@ -9,7 +9,7 @@ import {
 	type PostSiderMedia,
 	type PostSiderTag,
 } from '../shared/payloads';
-import { validateIdempotencyKey, type OperationRequest } from '../shared/operations';
+import { nodeToken, validateIdempotencyKey, type OperationRequest } from '../shared/operations';
 import { postSiderApiRequest } from '../shared/transport';
 import { parseIdList, parseMediaJson, parseUrlList } from './inputs';
 import { uploadBinaries, uploadFromUrls, type ApiCall } from './media';
@@ -33,6 +33,9 @@ export interface PublishInput {
 }
 
 const YOUTUBE_TITLE_MIN = 2;
+const YOUTUBE_TITLE_MAX = 100;
+const WAIT_MIN_SECONDS = 1;
+const WAIT_MAX_SECONDS = 300;
 const DEFAULT_WAIT_INTERVAL_MS = 5000;
 
 export function defaultIdempotencyKey(
@@ -40,8 +43,14 @@ export function defaultIdempotencyKey(
 	supplied: string,
 	executionId: string,
 	itemIndex: number,
+	runIndex = 0,
 ): string {
-	return validateIdempotencyKey(node, supplied.trim() || `n8n:${executionId}:item:${itemIndex}`);
+	const token = nodeToken(node.name);
+	return validateIdempotencyKey(
+		node,
+		supplied.trim() ||
+			`n8n:${executionId}:${token ? `${token}:` : ''}run${runIndex}:item:${itemIndex}`,
+	);
 }
 
 export function resolvePublishDate(
@@ -61,28 +70,40 @@ export function resolvePublishDate(
 		if (typeof slotDate !== 'string' || !slotDate) {
 			throw new NodeOperationError(node, 'PostSider returned no free slot for this channel');
 		}
-		return slotDate;
+		// find-slot returns a zone-less UTC wall-clock string; normalize treats it as UTC.
+		return normalizeScheduledDate(node, slotDate);
 	}
 	return now.toISOString();
 }
 
-/** Keyed form: every top-level key is a selected channel id and every value is an object. */
+/**
+ * Two allowed shapes: one settings object for every channel, or an object keyed only by channel ids
+ * known in the workspace (values are settings objects). Keys of channels that are not selected are
+ * ignored. Mixing channel ids with other keys is an error.
+ */
 function settingsFor(
+	node: INode,
 	settingsJson: Record<string, unknown>,
 	channelId: string,
-	channels: string[],
+	knownIds: string[],
 ): Record<string, unknown> {
 	const keys = Object.keys(settingsJson);
+	const idKeys = keys.filter((key) => knownIds.includes(key));
+	if (idKeys.length === 0) return settingsJson;
 	const keyed =
-		keys.length > 0 &&
-		keys.every(
+		idKeys.length === keys.length &&
+		idKeys.every(
 			(key) =>
-				channels.includes(key) &&
 				settingsJson[key] !== null &&
 				typeof settingsJson[key] === 'object' &&
 				!Array.isArray(settingsJson[key]),
 		);
-	if (!keyed) return settingsJson;
+	if (!keyed) {
+		throw new NodeOperationError(
+			node,
+			'Settings JSON must be either one settings object applied to every channel, or an object keyed only by channel ID whose values are settings objects. It mixes channel IDs with other keys.',
+		);
+	}
 	return (settingsJson[channelId] as Record<string, unknown> | undefined) ?? {};
 }
 
@@ -111,9 +132,10 @@ export function buildPublishRequest(
 			provider,
 			text,
 			input.platform,
-			settingsFor(input.settingsJson, channelId, input.channels),
+			settingsFor(node, input.settingsJson, channelId, Object.keys(providers)),
 		);
-		if (provider === 'youtube' && String(settings.title ?? '').trim().length < YOUTUBE_TITLE_MIN) {
+		const titleLength = String(settings.title ?? '').trim().length;
+		if (provider === 'youtube' && (titleLength < YOUTUBE_TITLE_MIN || titleLength > YOUTUBE_TITLE_MAX)) {
 			throw new NodeOperationError(
 				node,
 				'YouTube needs a title of 2 to 100 characters. Set Options > Platform Settings > Title.',
@@ -174,7 +196,7 @@ export function summarizeCreated(
 	});
 }
 
-const FINAL_STATES = new Set(['PUBLISHED', 'ERROR']);
+const FINAL_STATES = new Set(['PUBLISHED', 'ERROR', 'DRAFT', 'APPROVAL', 'HELD']);
 
 export async function waitForResult(
 	api: ApiCall,
@@ -184,6 +206,11 @@ export async function waitForResult(
 	intervalMs = DEFAULT_WAIT_INTERVAL_MS,
 ): Promise<IDataObject[]> {
 	const result = rows.map((row) => ({ ...row }));
+	const limitMs =
+		Math.min(
+			WAIT_MAX_SECONDS,
+			Math.max(WAIT_MIN_SECONDS, Number.isFinite(timeoutSeconds) ? timeoutSeconds : 60),
+		) * 1000;
 	const isPending = (row: IDataObject) =>
 		!FINAL_STATES.has(String(row.state)) && row.approvalRequested !== true && !!row.postId;
 	let elapsed = 0;
@@ -201,12 +228,18 @@ export async function waitForResult(
 				if (post.publishDate) row.publishDate = String(post.publishDate);
 				if (post.releaseURL) row.releaseURL = String(post.releaseURL);
 				if (post.error) row.error = String(post.error);
-			} catch {
-				// A failed poll is not a failed post; try again on the next round.
+			} catch (error) {
+				const status = (error as { statusCode?: number }).statusCode;
+				if (typeof status === 'number' && status >= 400 && status < 500) {
+					const message = (error as Error).message;
+					for (const pending of result.filter(isPending)) pending.pollError = message;
+					return result;
+				}
+				// 5xx and network errors are not a failed post; try again on the next round.
 			}
 		}
 		if (!result.some(isPending)) return result;
-		if (elapsed + intervalMs > timeoutSeconds * 1000) {
+		if (elapsed + intervalMs > limitMs) {
 			for (const row of result.filter(isPending)) row.timedOut = true;
 			return result;
 		}
@@ -271,28 +304,22 @@ export async function executePublish(
 		}
 	}
 
+	// Pure input parsing and validation first: nothing below may cost an upload or a slot lookup.
 	const mediaSource = String(get('mediaSource', 'none'));
+	let binaryNames: string[] = [];
+	let mediaUrls: string[] = [];
 	let media: PostSiderMedia[] = [];
+	let mediaCount = 0;
 	if (mediaSource === 'binary') {
-		const names = parseIdList(node, get('binaryProperties', 'data'), 'Binary property names');
-		media = await uploadBinaries(ctx, api, index, names);
+		binaryNames = parseIdList(node, get('binaryProperties', 'data'), 'Binary property names');
+		mediaCount = binaryNames.length;
 	} else if (mediaSource === 'url') {
-		media = await uploadFromUrls(api, parseUrlList(node, get('mediaUrls', '')));
+		mediaUrls = parseUrlList(node, get('mediaUrls', ''));
+		mediaCount = mediaUrls.length;
 	} else if (mediaSource === 'uploaded') {
 		media = parseMediaJson(node, get('mediaJson', '[]'));
+		mediaCount = media.length;
 	}
-
-	let slot: unknown;
-	if (when === 'nextSlot') {
-		slot = await api<unknown>('GET', `/find-slot/${encodeURIComponent(channels[0])}`);
-	}
-	const date = resolvePublishDate(
-		node,
-		when,
-		when === 'schedule' ? String(get('date', '')) : undefined,
-		now(),
-		slot,
-	);
 
 	const perChannelText: Record<string, string> = {};
 	const overrides = ((options.perChannelText as IDataObject | undefined)?.override ?? []) as Array<{
@@ -312,37 +339,59 @@ export async function executePublish(
 	const tags = (((options.tags as IDataObject | undefined)?.tag ?? []) as PostSiderTag[]).filter(
 		(tag) => tag && tag.value,
 	);
-
-	const request = buildPublishRequest(
+	const idempotencyKey = defaultIdempotencyKey(
 		node,
-		{
-			channels,
-			text,
-			when,
-			date,
-			media,
-			firstComment: options.firstComment ? String(options.firstComment) : undefined,
-			perChannelText,
-			platform: collectPlatform((options.platformSettings ?? {}) as IDataObject),
-			settingsJson,
-			tags,
-			shortLink: Boolean(options.shortLink),
-			idempotencyKey: defaultIdempotencyKey(
-				node,
-				String(options.idempotencyKey ?? ''),
-				ctx.getExecutionId(),
-				index,
-			),
-		},
-		providers,
-		date,
+		String(options.idempotencyKey ?? ''),
+		ctx.getExecutionId(),
+		index,
+		runIndexOf(ctx, index),
 	);
+	const base: Omit<PublishInput, 'media' | 'date'> = {
+		channels,
+		text,
+		when,
+		firstComment: options.firstComment ? String(options.firstComment) : undefined,
+		perChannelText,
+		platform: collectPlatform((options.platformSettings ?? {}) as IDataObject),
+		settingsJson,
+		tags,
+		shortLink: Boolean(options.shortLink),
+		idempotencyKey,
+	};
+	const scheduleDate =
+		when === 'schedule' ? resolvePublishDate(node, when, String(get('date', '')), now()) : undefined;
+	// Dry build with placeholder media so text, title and settings errors surface before any API call.
+	buildPublishRequest(
+		node,
+		{ ...base, media: Array.from({ length: mediaCount }, (_, n) => ({ id: `${n}`, path: '' })) },
+		providers,
+		scheduleDate ?? now().toISOString(),
+	);
+
+	if (mediaSource === 'binary') media = await uploadBinaries(ctx, api, index, binaryNames);
+	else if (mediaSource === 'url') media = await uploadFromUrls(api, mediaUrls);
+
+	let slot: unknown;
+	if (when === 'nextSlot') {
+		slot = await api<unknown>('GET', `/find-slot/${encodeURIComponent(channels[0])}`);
+	}
+	const date = scheduleDate ?? resolvePublishDate(node, when, undefined, now(), slot);
+
+	const request = buildPublishRequest(node, { ...base, media }, providers, date);
 
 	const response = await api<unknown>(request.method, request.endpoint, request.input);
 	let rows = summarizeCreated(response, names, when === 'draft' ? 'DRAFT' : 'QUEUE', date);
 	if (options.waitForResult && (when === 'now' || when === 'nextSlot')) {
-		const timeout = Number(options.waitTimeout ?? 60);
-		rows = await waitForResult(api, rows, timeout > 0 ? timeout : 60, sleepFn);
+		rows = await waitForResult(api, rows, Number(options.waitTimeout ?? 60), sleepFn);
 	}
 	return rows;
+}
+
+function runIndexOf(ctx: IExecuteFunctions, index: number): number {
+	try {
+		const run = ctx.getWorkflowDataProxy(index).$runIndex;
+		return typeof run === 'number' ? run : 0;
+	} catch {
+		return 0;
+	}
 }
