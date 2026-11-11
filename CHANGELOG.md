@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.3.1 - 2026-11-11
+
+### Fixed
+
+- The node, trigger and credential icons now show the PostSider logo instead of a generic letter.
+
 ## 0.3.0 - 2026-11-11
 
 ### Added
