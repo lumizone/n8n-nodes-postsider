@@ -65,7 +65,11 @@ function buildUpdateBody(node: INode, params: IDataObject): IDataObject {
 	if (has(params.date) && String(params.date).trim() !== '') {
 		body.date = normalizeScheduledDate(node, String(params.date).trim());
 	}
-	if (has(params.firstComment)) body.firstComment = String(params.firstComment);
+	if (has(params.firstComment)) {
+		const comment = String(params.firstComment);
+		// An empty value clears the first comment; the backend contract for that is null.
+		body.firstComment = comment === '' ? null : comment;
+	}
 	if (Array.isArray(params.images)) body.images = params.images as IDataObject[];
 	const settings = params.settings as Record<string, unknown> | undefined;
 	if (settings && Object.keys(settings).length > 0) body.settings = settings as IDataObject;
@@ -182,15 +186,17 @@ export function buildPostRequest(
 }
 
 /**
- * Settings for Update: only the platform fields the user filled in, plus Settings JSON. No safe
- * defaults, because the backend replaces the post settings and a default would overwrite stored values.
+ * Settings for Update. The backend replaces the whole settings object (`patch.settings ?? stored`),
+ * so a partial object would wipe stored keys. Start from the stored settings, apply the platform
+ * fields the user filled in, then Settings JSON. No safe defaults are added.
  */
 export function buildUpdateSettings(
 	provider: string,
 	options: PlatformSettingsInput,
 	extra: Record<string, unknown>,
+	stored: Record<string, unknown> = {},
 ): Record<string, unknown> {
-	return buildChannelSettings(provider, '', options, extra, false);
+	return { ...stored, ...buildChannelSettings(provider, '', options, extra, false) };
 }
 
 /** The provider of an existing post, read from `GET /posts/:id`. */
@@ -346,7 +352,15 @@ async function executeUpdate(
 		mediaUrls = parseUrlList(node, get('updateMediaUrls', ''));
 		params.images = [];
 	} else if (mediaSource === 'uploaded') {
-		params.images = parseMediaJson(node, get('updateMediaJson', '[]'));
+		const uploaded = parseMediaJson(node, get('updateMediaJson', '[]'));
+		if (uploaded.length === 0) {
+			throw new NodeOperationError(
+				node,
+				'Media JSON is empty. To delete the media of the post, choose Remove All Media instead.',
+				{ itemIndex: index },
+			);
+		}
+		params.images = uploaded;
 	} else if (mediaSource === 'remove') {
 		params.images = [];
 	}
@@ -369,7 +383,15 @@ async function executeUpdate(
 			'GET',
 			`/posts/${encodeURIComponent(required(node, params, 'postId', 'Post ID'))}`,
 		);
-		params.settings = buildUpdateSettings(providerOfPost(detail), platform, settingsJson);
+		const storedSettings = (detail as { settings?: unknown } | undefined)?.settings;
+		params.settings = buildUpdateSettings(
+			providerOfPost(detail),
+			platform,
+			settingsJson,
+			storedSettings && typeof storedSettings === 'object' && !Array.isArray(storedSettings)
+				? (storedSettings as Record<string, unknown>)
+				: {},
+		);
 	}
 	if (mediaSource === 'binary') params.images = await uploadBinaries(ctx, api, index, binaryNames);
 	else if (mediaSource === 'url') params.images = await uploadFromUrls(api, mediaUrls);

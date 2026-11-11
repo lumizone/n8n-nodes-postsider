@@ -276,6 +276,44 @@ async function runExecutor(params: Record<string, unknown>, responses: unknown[]
 	return { result, requests };
 }
 
+test('buildUpdateSettings layers stored settings, then fields, then JSON', () => {
+	assert.deepEqual(
+		buildUpdateSettings('youtube', { youtubeVisibility: 'private' }, { tags: ['a'] }, { title: 'Old', type: 'public' }),
+		{ title: 'Old', type: 'private', tags: ['a'] },
+	);
+});
+
+test('update clears the first comment with null', () => {
+	assert.deepEqual(build('update', { postId: 'p1', firstComment: '' }).input.body, { firstComment: null });
+});
+
+test('executor: update keeps stored settings and changes only the given key', async () => {
+	const { requests } = await runExecutor(
+		{
+			resource: 'post',
+			operation: 'update',
+			postId: 'p1',
+			updateFields: { platformSettings: { youtubeVisibility: 'private' } },
+		},
+		[
+			{ group: 'g', settings: { title: 'Old', type: 'public' }, posts: [{ id: 'p1', integration: { providerIdentifier: 'youtube' } }] },
+			[{ postId: 'p1' }],
+		],
+	);
+	assert.deepEqual(requests[1].body, { settings: { title: 'Old', type: 'private' } });
+});
+
+test('executor: update with empty uploaded media asks for Remove All Media', async () => {
+	await assert.rejects(
+		() =>
+			runExecutor(
+				{ resource: 'post', operation: 'update', postId: 'p1', updateFields: { text: 'x' }, updateMediaSource: 'uploaded', updateMediaJson: '[]' },
+				[],
+			),
+		/Remove All Media/,
+	);
+});
+
 test('executor: update with platform settings reads the provider first and sends no defaults', async () => {
 	const { result, requests } = await runExecutor(
 		{
