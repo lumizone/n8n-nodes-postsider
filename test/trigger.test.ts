@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { PostSiderTrigger } from '../nodes/PostSiderTrigger/PostSiderTrigger.node.ts';
 import { pollWindow, selectNewPosts } from '../nodes/PostSiderTrigger/poll';
 
 const post = (id: string, state: string, channel = 'c1', publishDate = '2026-11-10T10:00:00.000Z') => ({
@@ -45,19 +46,77 @@ test('failed and scheduled events map to ERROR and QUEUE', () => {
 	assert.deepEqual(result.emit.map((p) => p.event), ['failed', 'scheduled']);
 });
 
-test('seen capped at 2000', () => {
-	const rows = Array.from({ length: 2100 }, (_, i) => post(String(i), 'PUBLISHED'));
-	const result = selectNewPosts(rows, ['published'], [], []);
-	assert.equal(result.seen.length, 2000);
-	assert.equal(result.seen[1999], '2099:PUBLISHED');
+test('key absent from next response is dropped', () => {
+	const first = selectNewPosts([post('1', 'QUEUE'), post('2', 'PUBLISHED')], ['published'], [], []);
+	assert.deepEqual(first.seen, ['1:QUEUE', '2:PUBLISHED']);
+	const second = selectNewPosts([post('2', 'PUBLISHED')], ['published'], [], first.seen);
+	assert.deepEqual(second.seen, ['2:PUBLISHED']);
+	assert.equal(second.emit.length, 0);
 });
 
-test('window never older than 7 days', () => {
+test('seen holds every state and channel, even unselected ones', () => {
+	const result = selectNewPosts([post('1', 'DRAFT', 'c9')], ['published'], ['c1'], []);
+	assert.deepEqual(result.seen, ['1:DRAFT']);
+});
+
+test('window is always now minus 7 days to now plus 30 days', () => {
 	const now = new Date('2026-11-11T12:00:00.000Z');
-	const old = pollWindow(now, '2026-10-01T00:00:00.000Z');
-	assert.equal(old.startDate, '2026-11-04T12:00:00.000Z');
-	assert.equal(old.endDate, '2026-12-11T12:00:00.000Z');
-	const recent = pollWindow(now, '2026-11-11T11:00:00.000Z');
-	assert.equal(recent.startDate, '2026-11-11T10:00:00.000Z');
-	assert.equal(pollWindow(now).startDate, '2026-11-11T11:00:00.000Z');
+	const w = pollWindow(now);
+	assert.equal(w.startDate, '2026-11-04T12:00:00.000Z');
+	assert.equal(w.endDate, '2026-12-11T12:00:00.000Z');
+});
+
+function fake(mode: string, params: Record<string, unknown>, staticData: Record<string, unknown>, posts: unknown[]) {
+	const calls: unknown[] = [];
+	const ctx = {
+		getNodeParameter: (name: string, fallback?: unknown) => params[name] ?? fallback,
+		getWorkflowStaticData: () => staticData,
+		getMode: () => mode,
+		getCredentials: async () => ({ baseUrl: 'https://api.postsider.com' }),
+		getNode: () => ({ name: 'PostSider Trigger' }),
+		helpers: {
+			httpRequestWithAuthentication: async (_name: string, options: unknown) => {
+				calls.push(options);
+				return { posts };
+			},
+			returnJsonArray: (items: unknown[]) => items.map((json) => ({ json })),
+		},
+	};
+	return { ctx, calls };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const run = (ctx: any) => new PostSiderTrigger().poll.call(ctx);
+
+test('poll seeds on first active run, then emits a newly published post', async () => {
+	const staticData: Record<string, unknown> = {};
+	const params = { events: ['published'], channels: [] };
+	const first = fake('trigger', params, staticData, [post('1', 'QUEUE')]);
+	assert.equal(await run(first.ctx), null);
+	assert.deepEqual(staticData.seen, ['1:QUEUE']);
+	const qs = (first.calls[0] as { qs: { startDate: string; endDate: string } }).qs;
+	assert.ok(qs.startDate < qs.endDate);
+	const second = fake('trigger', params, staticData, [post('1', 'PUBLISHED')]);
+	const out = (await run(second.ctx)) as { json: Record<string, unknown> }[][];
+	assert.equal(out[0].length, 1);
+	assert.equal(out[0][0].json.event, 'published');
+	assert.equal(out[0][0].json.id, '1');
+	const third = fake('trigger', params, staticData, [post('1', 'PUBLISHED')]);
+	assert.equal(await run(third.ctx), null);
+});
+
+test('manual mode returns newest match and leaves static data untouched', async () => {
+	const staticData: Record<string, unknown> = {};
+	const params = { events: ['published'], channels: [] };
+	const rows = [
+		post('1', 'PUBLISHED', 'c1', '2026-11-09T10:00:00.000Z'),
+		post('2', 'PUBLISHED', 'c1', '2026-11-10T10:00:00.000Z'),
+		post('3', 'QUEUE', 'c1', '2026-11-11T10:00:00.000Z'),
+	];
+	const out = (await run(fake('manual', params, staticData, rows).ctx)) as { json: Record<string, unknown> }[][];
+	assert.equal(out[0].length, 1);
+	assert.equal(out[0][0].json.id, '2');
+	assert.deepEqual(staticData, {});
+	assert.equal(await run(fake('manual', params, staticData, [post('3', 'QUEUE')]).ctx), null);
+	assert.deepEqual(staticData, {});
 });

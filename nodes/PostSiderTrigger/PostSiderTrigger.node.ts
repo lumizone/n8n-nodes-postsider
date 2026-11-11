@@ -19,7 +19,8 @@ export class PostSiderTrigger implements INodeType {
 		icon: { light: 'file:postsider.svg', dark: 'file:postsider.dark.svg' },
 		group: ['trigger'],
 		version: 1,
-		description: 'Starts a workflow when PostSider posts are published, fail, or get scheduled',
+		description:
+			'Starts a workflow when PostSider posts are published, fail, or get scheduled. A new event is a post reaching a selected state that was not present in the previous poll (looking back 7 days), so a post that returns to a state it left is reported again.',
 		eventTriggerDescription: 'Waiting for PostSider post events',
 		subtitle: '={{$parameter["events"].join(", ")}}',
 		defaults: { name: 'PostSider Trigger' },
@@ -60,7 +61,7 @@ export class PostSiderTrigger implements INodeType {
 		const staticData = this.getWorkflowStaticData('node') as IDataObject;
 		const manual = this.getMode() === 'manual';
 		const now = new Date();
-		const window = pollWindow(now, manual ? undefined : (staticData.lastPoll as string | undefined));
+		const window = pollWindow(now);
 
 		let posts: unknown[];
 		try {
@@ -82,7 +83,6 @@ export class PostSiderTrigger implements INodeType {
 
 		const result = selectNewPosts(posts, events, channels, staticData.seen as string[] | undefined);
 		staticData.seen = result.seen;
-		staticData.lastPoll = now.toISOString();
 		return result.emit.length ? [this.helpers.returnJsonArray(result.emit as IDataObject[])] : null;
 	}
 }

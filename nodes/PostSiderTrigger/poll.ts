@@ -1,8 +1,7 @@
 import { normalizePostResponse, simplifyPostResponse } from '../PostSider/shared/operations';
 
-const HOUR = 3_600_000;
-const DAY = 24 * HOUR;
-const SEEN_LIMIT = 2000;
+const DAY = 24 * 3_600_000;
+const SEEN_LIMIT = 10000;
 
 const EVENT_STATES: Record<string, string> = {
 	published: 'PUBLISHED',
@@ -10,12 +9,9 @@ const EVENT_STATES: Record<string, string> = {
 	scheduled: 'QUEUE',
 };
 
-export function pollWindow(now: Date, lastPoll?: string): { startDate: string; endDate: string } {
-	const parsed = lastPoll ? new Date(lastPoll).getTime() : Number.NaN;
-	const base = Number.isNaN(parsed) ? now.getTime() : parsed;
-	const start = Math.max(base - HOUR, now.getTime() - 7 * DAY);
+export function pollWindow(now: Date): { startDate: string; endDate: string } {
 	return {
-		startDate: new Date(start).toISOString(),
+		startDate: new Date(now.getTime() - 7 * DAY).toISOString(),
 		endDate: new Date(now.getTime() + 30 * DAY).toISOString(),
 	};
 }
@@ -52,7 +48,11 @@ function toItem(post: Record<string, unknown>, event: string): Record<string, un
 	return { ...simplifyPostResponse(post), event };
 }
 
-/** `seen` undefined means first run: seed every key and emit nothing. */
+/**
+ * `seen` undefined means first run: seed and emit nothing. Afterwards `seen`
+ * becomes exactly the keys present in this response (capped), so a key leaves
+ * only when its post leaves the window or changes state.
+ */
 export function selectNewPosts(
 	posts: unknown[],
 	events: string[],
@@ -60,19 +60,18 @@ export function selectNewPosts(
 	seen: string[] | undefined,
 ): { emit: Record<string, unknown>[]; seen: string[] } {
 	const rows = posts.map(asRecord).filter((row): row is Record<string, unknown> => !!row && row.id !== undefined);
-	const known = new Set(seen ?? []);
-	const order = [...(seen ?? [])];
+	const previous = new Set(seen ?? []);
+	const current = new Set<string>();
 	const emit: Record<string, unknown>[] = [];
 	for (const row of rows) {
 		const key = keyOf(row);
-		if (known.has(key)) continue;
-		known.add(key);
-		order.push(key);
-		if (seen === undefined) continue;
+		if (current.has(key)) continue;
+		current.add(key);
+		if (seen === undefined || previous.has(key)) continue;
 		const event = matches(row, events, channels);
 		if (event) emit.push(toItem(row, event));
 	}
-	return { emit, seen: order.slice(-SEEN_LIMIT) };
+	return { emit, seen: [...current].slice(-SEEN_LIMIT) };
 }
 
 /** Manual mode: the newest matching post by publishDate, nothing stored. */
