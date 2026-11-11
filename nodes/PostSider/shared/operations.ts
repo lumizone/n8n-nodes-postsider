@@ -65,7 +65,7 @@ function validateMedia(node: INode, media: PostSiderMedia[]): PostSiderMedia[] {
 	return media;
 }
 
-function validateIdempotencyKey(node: INode, value: string): string {
+export function validateIdempotencyKey(node: INode, value: string): string {
 	if (!/^[A-Za-z0-9._:-]{1,255}$/.test(value)) {
 		throw new NodeOperationError(
 			node,

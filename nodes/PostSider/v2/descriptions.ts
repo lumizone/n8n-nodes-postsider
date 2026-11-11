@@ -577,7 +577,7 @@ const publishFields: INodeProperties[] = [
 				type: 'json',
 				default: '{}',
 				description:
-					'Provider settings object applied to every channel, for example who_can_reply_post for X',
+					'Provider settings object applied to every channel (for example who_can_reply_post for X), or an object keyed by channel ID whose values are settings objects, applied per channel',
 			},
 			{
 				displayName: 'Shorten Links',

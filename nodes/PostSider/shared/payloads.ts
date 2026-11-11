@@ -1,7 +1,7 @@
 import type { INode } from 'n8n-workflow';
 import { NodeOperationError } from 'n8n-workflow';
 
-export type PostType = 'draft' | 'schedule';
+export type PostType = 'draft' | 'schedule' | 'now';
 
 export interface PostSiderMedia {
 	id: string;
