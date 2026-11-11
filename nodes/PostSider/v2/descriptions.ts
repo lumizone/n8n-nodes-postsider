@@ -1,5 +1,7 @@
 import type { INodeProperties } from 'n8n-workflow';
 
+import { fieldProperties as v1Fields } from '../resources/descriptions';
+
 const V2 = { '@version': [2] };
 const SERVER_NOTE = 'Requires PostSider server 2026-11 or newer. ';
 
@@ -992,9 +994,136 @@ const postOperationFields: INodeProperties[] = [
 	},
 ];
 
+const show = (resource: string, ...operations: string[]) => ({ ...V2, resource: [resource], operation: operations });
+
+/**
+ * Approval, Group and Policy keep the version 1 fields with the same names, so both versions read them
+ * with the same code. They are taken from the version 1 list and re-shown for version 2.
+ */
+const CONTROL_RESOURCES = ['approval', 'group', 'policy', 'channel'];
+const controlFields: INodeProperties[] = v1Fields
+	.filter((property) => {
+		const resources = (property.displayOptions?.show?.resource ?? []) as string[];
+		return resources.length > 0 && resources.every((resource) => CONTROL_RESOURCES.includes(resource));
+	})
+	.map((property) => ({
+		...property,
+		displayOptions: { ...property.displayOptions, show: { ...property.displayOptions?.show, ...V2 } },
+	}));
+
+const otherFields: INodeProperties[] = [
+	{
+		displayName: 'Post ID',
+		name: 'postId',
+		type: 'string',
+		required: true,
+		default: '',
+		description: 'ID of the PostSider post',
+		displayOptions: { show: show('approval', 'getStatus', 'request') },
+	},
+	{
+		displayName: 'Source',
+		name: 'uploadSource',
+		type: 'options',
+		options: [
+			{ name: 'Binary Data', value: 'binary', description: 'Upload files from the input item' },
+			{ name: 'Public URLs', value: 'url', description: 'Import public HTTPS image or video URLs' },
+		],
+		default: 'binary',
+		description: 'Where the files come from',
+		displayOptions: { show: show('media', 'upload') },
+	},
+	{
+		displayName: 'Input Binary Field',
+		name: 'uploadBinaryProperties',
+		type: 'string',
+		default: 'data',
+		placeholder: 'e.g. data, data2',
+		description: 'Comma-separated names of the binary properties that hold the files to upload',
+		displayOptions: { show: { ...show('media', 'upload'), uploadSource: ['binary'] } },
+	},
+	{
+		displayName: 'Media URLs',
+		name: 'uploadUrls',
+		type: 'string',
+		typeOptions: { rows: 3 },
+		default: '',
+		placeholder: 'e.g. https://example.com/image.png',
+		description: 'Public HTTPS image or video URLs, one per line or comma-separated',
+		displayOptions: { show: { ...show('media', 'upload'), uploadSource: ['url'] } },
+	},
+	{
+		displayName: 'Media ID',
+		name: 'mediaId',
+		type: 'string',
+		required: true,
+		default: '',
+		description: 'ID of the file, as returned by Media > Upload or Media > Get Many',
+		displayOptions: { show: show('media', 'delete') },
+	},
+	{
+		displayName: 'Page',
+		name: 'page',
+		type: 'number',
+		typeOptions: { minValue: 1 },
+		default: 1,
+		description: 'Page of the media library to return (18 files per page)',
+		displayOptions: { show: show('media', 'getMany') },
+	},
+	{
+		displayName: 'Search',
+		name: 'search',
+		type: 'string',
+		default: '',
+		description: 'Only return files whose name contains this text',
+		displayOptions: { show: show('media', 'getMany') },
+	},
+	{
+		displayName: 'Include Disabled',
+		name: 'includeDisabled',
+		type: 'boolean',
+		default: false,
+		description: 'Whether to also return channels that are disabled',
+		displayOptions: { show: show('channel', 'getMany') },
+	},
+	{
+		displayName: 'Channel Name or ID',
+		name: 'channelId',
+		type: 'options',
+		typeOptions: { loadOptionsMethod: 'getChannels' },
+		default: '',
+		required: true,
+		description:
+			'Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>',
+		displayOptions: {
+			show: show('channel', 'getRules', 'findNextSlot', 'getAnalytics', 'enable', 'disable'),
+		},
+	},
+	{
+		displayName: 'Days',
+		name: 'days',
+		type: 'number',
+		typeOptions: { minValue: 1 },
+		default: 7,
+		description: 'How many days of analytics to return',
+		displayOptions: { show: show('channel', 'getAnalytics') },
+	},
+	{
+		displayName: 'Reason',
+		name: 'reason',
+		type: 'string',
+		default: '',
+		description:
+			'Why publishing is paused. Publishing can only be resumed in the PostSider dashboard, not from n8n.',
+		displayOptions: { show: show('publishing', 'pause') },
+	},
+];
+
 export const v2Properties: INodeProperties[] = [
 	resourceProperty,
 	...operationProperties,
 	...publishFields,
 	...postOperationFields,
+	...controlFields,
+	...otherFields,
 ];

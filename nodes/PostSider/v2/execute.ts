@@ -1,6 +1,7 @@
 import type { IDataObject, IExecuteFunctions, INodeExecutionData, JsonObject } from 'n8n-workflow';
 import { NodeApiError, NodeOperationError } from 'n8n-workflow';
 
+import { executeOtherOperation } from './otherOperations';
 import { executePostOperation } from './postOperations';
 import { executePublish, type IntegrationCache } from './publish';
 
@@ -30,6 +31,8 @@ export async function executeV2(this: IExecuteFunctions): Promise<INodeExecution
 				output = await executePublish(this, index, integrations);
 			} else if (resource === 'post' && POST_OPERATIONS.has(operation)) {
 				output = await executePostOperation(this, index, operation);
+			} else if (resource !== 'post') {
+				output = await executeOtherOperation(this, index, resource, operation);
 			} else {
 				throw new NodeOperationError(
 					this.getNode(),
