@@ -1,22 +1,30 @@
 # n8n-nodes-postsider
 
-An n8n community node for building review-first social media publishing workflows with [PostSider](https://postsider.com).
+An n8n community node for publishing and automating social media posts with [PostSider](https://postsider.com).
 
 The package talks directly to the PostSider public REST API. It does not start the PostSider MCP server and has no runtime dependencies.
+
+## What's new in 0.3.0
+
+- **Node version 2** is the default for new nodes. Workflows that already use the node keep version 1, unchanged.
+- **Post > Publish** puts a post out in four fields: Channels, Text, Media and When. When is **Now** by default.
+- Pick several channels at once and send one text to all of them, with optional per-channel text.
+- Media comes straight from the input item's binary data, from public URLs, or from files you already uploaded. No separate upload step.
+- Platform settings have safe defaults, so a plain post works on X, YouTube, TikTok and Instagram without any JSON.
+- **Wait for Result** returns the final status and the post link.
+- New operations: Post Update, Delete, Duplicate, Retry Failed, Check Content, Rewrite with AI and Get Analytics; Media Upload, Get Many and Delete; Channel Get Rules, Find Next Slot, Get Analytics, Enable and Disable; Publishing Get State and Pause.
+- New **PostSider Trigger** node (polling) for published, failed and scheduled posts.
+- The node can be used as a tool by AI agents.
 
 ## Features
 
 - Store the PostSider organization API key in n8n credentials.
 - Load connected channels and channel groups dynamically.
-- Create drafts or schedule posts with channel-specific content and provider settings.
+- Publish now, schedule, use the next free queue slot, or save a draft.
 - Use stable idempotency keys so n8n retries do not create duplicate posts.
-- Import public HTTPS media URLs into the PostSider media library.
-- Find the next available queue slot for a channel.
-- Request, list, approve and reject approvals; check a post against publishing policies; manage groups.
+- Upload media from binary data or public URLs as part of publishing.
+- Request, list, approve and reject approvals; check a post against publishing policies; manage groups (need a newer PostSider server, see the operations table).
 - Normalize PostSider media fields and optionally simplify large post responses.
-- Use the node as an n8n AI tool.
-
-Immediate publishing, post deletion, channel deletion, and the organization-wide publishing pause are intentionally not exposed in the first release.
 
 ## Installation
 
@@ -53,7 +61,74 @@ https://social.example.com/api
 
 The node appends `/public/v1`. Remote HTTP URLs and URLs containing embedded credentials are rejected. Plain HTTP is accepted only for loopback development hosts.
 
-## Operations
+## Quick start
+
+### Publish a post now
+
+1. Add a **PostSider** node. Resource **Post**, operation **Publish** are the defaults.
+2. Choose one or more **Channels**.
+3. Type the **Text**.
+4. Leave **When** on **Now**.
+
+That is all. Run the node and the post is sent. Turn on **Options > Wait for Result** to get the final status and the post link in the output.
+
+### Publish with an image from a previous node
+
+Set **Media** to **Binary Data**. **Input Binary Field** is `data` by default, which is where the HTTP Request node, Google Drive and most image nodes put their file. Several property names can be listed, separated by commas. The node uploads each file and attaches it to every selected channel. See `examples/publish-now-with-image.json`.
+
+Other media modes: **Public URLs** (one HTTPS URL per line or comma-separated) and **Already Uploaded** (the `[{id, path}]` objects returned by Media > Upload).
+
+### When
+
+| Value | What happens |
+| --- | --- |
+| Now (default) | Publishes immediately |
+| Schedule | Publishes at the **Date** you choose (UTC) |
+| Next Free Slot | Looks up the next free queue slot of the first selected channel and schedules the post there |
+| Draft | Saves the post without publishing |
+
+### Options
+
+- **First Comment**: posted right after the post, where the platform supports it.
+- **Per-Channel Text**: a different text for a specific channel. Other channels use **Text**.
+- **Platform Settings**: X reply setting and community, YouTube visibility, made for kids and title, TikTok privacy, comments, duet, stitch and auto music, Instagram and Facebook post type, Pinterest board and link, LinkedIn image carousel, and a title for article platforms. A setting is applied only to channels of that platform.
+- **Settings JSON**: raw provider settings, merged last. Give one object for every channel, or an object keyed by channel ID.
+- **Tags** and **Shorten Links**.
+- **Idempotency Key**: see below.
+- **Wait for Result** and **Wait Timeout (Seconds)**.
+
+Safe defaults are filled in for you: X replies from everyone, YouTube public with the title taken from the first 100 characters of the text (set **Title** for a better one), TikTok public and direct post with comments on and duet, stitch and the brand toggles off, Instagram as a normal post.
+
+### Wait for Result
+
+With **Now** or **Next Free Slot**, the node polls PostSider every 5 seconds until each post is published or has failed, or until **Wait Timeout (Seconds)** passes (default 60, maximum 300). The output row then has:
+
+- `state: PUBLISHED` and `releaseURL` (the link to the live post), or
+- `state: ERROR` and `error`, or
+- `timedOut: true` with the last known state. A timeout is not an error.
+
+### Output
+
+Publish returns one item per channel: `postId`, `group`, `channelId`, `channelName`, `state`, `publishDate`, `releaseURL`, `error`, `approvalRequested` and `policy`.
+
+## PostSider Trigger
+
+The **PostSider Trigger** node starts a workflow when posts change state. It polls the PostSider API, so it needs no webhook setup and works on PostSider Cloud.
+
+- **Events**: Post Published (default), Post Failed, Post Scheduled. Pick one or more.
+- **Channels**: optional filter. Leave empty for all channels.
+- It looks at posts from 7 days back to 30 days ahead.
+- The first time you activate the workflow, it emits nothing. It only remembers what it sees.
+- A new event is a post that reached a selected state and was not in that state in the previous poll. If a post leaves a state and comes back, it is reported again.
+- In manual test mode it returns the newest matching post so you can map fields.
+
+See `examples/notify-on-failed-post.json`.
+
+## AI agents
+
+Both nodes can be used as tools by n8n AI agents. Operations have plain descriptions written for the model, for example "Publish a post" and "Check a post before publishing".
+
+## Operations (version 2)
 
 | Resource | Operation | Purpose |
 | --- | --- | --- |
@@ -61,33 +136,58 @@ The node appends `/public/v1`. Remote HTTP URLs and URLs containing embedded cre
 | Approval | Get Status | Retrieve the human approval state for a post |
 | Approval | Get Many | List approvals by status and date, newest first |
 | Approval | Approve / Reject | Decide a pending approval (optional note) |
-| Channel | Get Many | List connected and enabled channels, optionally by group |
+| Channel | Get Many | List connected channels, optionally by group or including disabled ones |
+| Channel | Get Rules | Limits and required settings of a channel |
+| Channel | Find Next Slot | Find the next free queue slot for a channel |
+| Channel | Get Analytics | Analytics of a channel over a number of days |
+| Channel | Enable / Disable | Turn a channel on or off without disconnecting it |
 | Group | Get Many | List channel groups |
 | Group | Create / Rename / Archive | Manage groups (customer workspaces) |
-| Media | Import From URL | Import a public HTTPS image or video URL |
+| Media | Upload | Upload binary data or public URLs to the media library |
+| Media | Get Many | List media, with search and paging |
+| Media | Delete | Delete a media file |
 | Policy | Check | Dry run: which publishing rules a post would hit (creates nothing) |
 | Policy | Get Many Rules | List the publishing policy rules |
-| Post | Create | Create a draft or schedule a post |
+| Post | Publish | Publish now, schedule, next free slot or draft, on one or more channels |
 | Post | Get | Retrieve a post and all channel versions in its group |
-| Post | Get Many | Retrieve posts in a required date range |
-| Scheduling | Find Next Slot | Find the next free queue slot for a channel |
+| Post | Get Many | List posts for the next 7 days, the last 7 days or a custom range; filter by state, channel and group |
+| Post | Update | Change text, time, first comment, media or settings; stored settings are kept |
+| Post | Delete | Delete a post. This deletes the whole group (all channel versions) |
+| Post | Duplicate | Create a draft copy, optionally for another channel or date |
+| Post | Retry Failed | Republish a failed post instead of creating a duplicate |
+| Post | Check | Validate text against channel rules without creating a post |
+| Post | Rewrite | Rewrite text with AI for a platform and tone |
+| Post | Get Analytics | Analytics of a published post |
+| Publishing | Get State | Whether publishing is paused |
+| Publishing | Pause | Pause publishing for the whole organization. Resume only works in the PostSider dashboard |
+
+Approval, Policy and Group operations and Post > Retry Failed need PostSider server 2026-11 or newer. On older servers they return a 404 error and the other operations keep working.
+
+## Version 1 workflows
+
+Workflows built with 0.2.x keep using node version 1: the same fields, the same behavior, including Post > Create and the Scheduling resource. Nothing needs to change. To use the new Publish operation, add a new PostSider node (it is version 2).
 
 ### Required API key scopes
 
+Create the key with the scopes your workflow needs. Typical ones:
+
 | Operation | Scope |
 | --- | --- |
+| Post Publish, Update, Delete, Duplicate, Retry Failed | `posts:write` |
+| Post Get, Get Many, Check, Rewrite; PostSider Trigger | `posts:read` |
 | Approval Get Status, Get Many | `approvals:read` |
 | Approval Request | `approvals:write` |
 | Approval Approve, Reject | `approvals:decide` (never granted by default) |
 | Policy Check | `posts:read` |
 | Policy Get Many Rules | `policies:read` |
-| Group Get Many | `channels:read` |
-| Group Create, Rename, Archive | `channels:write` |
-| Post Create | `posts:write` |
+| Channel Get Many, Get Rules, Find Next Slot; Group Get Many | `channels:read` |
+| Channel Enable, Disable; Group Create, Rename, Archive | `channels:write` |
 
-Approval, policy and group operations need a PostSider version that has the matching endpoints. On older servers they return the server's error and the other operations keep working. For a self-hosted PostSider, set **Base URL** to your public origin including `/api` (see Credentials).
+If an operation returns a permission error, check the scope list of the key in PostSider **Settings > API**. For a self-hosted PostSider, set **Base URL** to your public origin including `/api` (see Credentials).
 
-## Create Post
+## Create Post (version 1)
+
+This section describes the version 1 operation. New workflows should use Post > Publish.
 
 `Post Type` defaults to `Draft`. Scheduling is explicit and requires `Publish Date`.
 
@@ -128,7 +228,10 @@ PostSider validates the final provider settings before accepting a scheduled pos
 
 ### Idempotency
 
-When **Idempotency Key** is empty, the node derives a stable value from the n8n execution ID and input-item index. Re-running the same item inside the same execution therefore reuses the same API operation instead of creating a duplicate.
+Publish and Create send an `Idempotency-Key` header, so a retry of the same request does not post twice. When **Idempotency Key** is empty, the node builds one from the n8n execution ID, the node name, the run number and the input item index. That makes it:
+
+- safe for retries: re-running the same item inside the same execution reuses the same API operation instead of creating a duplicate;
+- safe for loops and several PostSider nodes in one workflow: each node, run and item gets its own key, so they never collide.
 
 For retries across separate n8n executions, provide your own business key, such as:
 
@@ -150,11 +253,13 @@ The node reads the approval first and sends `expectStage` (the current stage pos
 
 Import these files into n8n and replace placeholder channel IDs:
 
-- `examples/import-media-and-create-draft.json`
-- `examples/find-slot-and-schedule.json`
+- `examples/publish-now-with-image.json`: download an image, then Publish Now with binary media and Wait for Result (version 2)
+- `examples/notify-on-failed-post.json`: PostSider Trigger on failed posts, then a Set node you can replace with your own alert (version 2)
+- `examples/import-media-and-create-draft.json` (version 1)
+- `examples/find-slot-and-schedule.json` (version 1)
 - `examples/approval-notify-slack.json`
 
-The first two are safe by default: the first creates a draft, the second schedules only after the user configures and activates it. The third receives an `approval.requested` webhook, verifies its HMAC signature (placeholder secret from the `POSTSIDER_WEBHOOK_SECRET` environment variable) and filters the event; its Approve and Reject nodes are disabled until you enable one on purpose.
+The two version 2 examples are inactive when imported. The publish example sends a real post when you run it, so set the channel first. The draft example creates a draft, the schedule example schedules only after you configure and activate it. The approval example receives an `approval.requested` webhook, verifies its HMAC signature (placeholder secret from the `POSTSIDER_WEBHOOK_SECRET` environment variable) and filters the event; its Approve and Reject nodes are disabled until you enable one on purpose.
 
 ## Development
 
@@ -172,7 +277,7 @@ npm run build
 npm run dev
 ```
 
-The test suite covers payload construction, URL security, request routing, UI metadata, item linking, retry-safe create behavior, approval status, and response normalization.
+The test suite covers payload construction, URL security, request routing, UI metadata, item linking, retry-safe publish and create behavior, media upload, platform settings, the trigger, approval status, and response normalization.
 
 ## Release verification
 
@@ -192,7 +297,7 @@ Releases are published only from GitHub Actions (`.github/workflows/publish.yml`
 - API requests time out after 30 seconds.
 - Remote Base URLs must use HTTPS, except loopback development URLs.
 - The package has no runtime dependencies and does not access environment variables or the filesystem.
-- Immediate publishing and destructive operations are not part of the first release.
+- Destructive operations (Post Delete, Media Delete, Publishing Pause) only run when you add and configure them in a workflow.
 
 Report security issues privately to `lukasz@postsider.com`.
 

@@ -1,7 +1,7 @@
 {
   "name": "n8n-nodes-postsider",
-  "version": "0.2.3",
-  "description": "Verified-ready n8n community node for PostSider social media publishing workflows",
+  "version": "0.3.0",
+  "description": "n8n community node for PostSider: publish now, schedule and automate social media posts",
   "license": "MIT",
   "homepage": "https://postsider.com",
   "keywords": [
