@@ -21,6 +21,8 @@ import {
 	simplifyPostResponse,
 } from './shared/operations';
 import { postSiderApiRequest } from './shared/transport';
+import { v2Properties } from './v2/descriptions';
+import { executeV2 } from './v2/execute';
 
 function getParameters(context: IExecuteFunctions, resource: string, operation: string, index: number) {
 	const get = (name: string, fallback?: unknown) => context.getNodeParameter(name, index, fallback);
@@ -135,7 +137,8 @@ export class PostSider implements INodeType {
 		name: 'postSider',
 		icon: { light: 'file:postsider.svg', dark: 'file:postsider.dark.svg' },
 		group: ['output'],
-		version: 1,
+		version: [1, 2],
+		defaultVersion: 2,
 		subtitle: '={{$parameter["operation"] + ": " + $parameter["resource"]}}',
 		description: 'Prepare, schedule, and review social media posts with PostSider',
 		defaults: { name: 'PostSider' },
@@ -143,7 +146,7 @@ export class PostSider implements INodeType {
 		outputs: [NodeConnectionTypes.Main],
 		usableAsTool: true,
 		credentials: [{ name: 'postSiderApi', required: true }],
-		properties: [resourceProperty, ...operationProperties, ...fieldProperties],
+		properties: [resourceProperty, ...operationProperties, ...fieldProperties, ...v2Properties],
 	};
 
 	methods = {
@@ -154,6 +157,7 @@ export class PostSider implements INodeType {
 	};
 
 	async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
+		if (this.getNode().typeVersion >= 2) return executeV2.call(this);
 		const items = this.getInputData();
 		const returnData: INodeExecutionData[] = [];
 		for (let index = 0; index < items.length; index++) {

@@ -7,6 +7,8 @@ import { PostSiderApi } from '../credentials/PostSiderApi.credentials.ts';
 import { PostSider } from '../nodes/PostSider/PostSider.node.ts';
 
 const node = new PostSider();
+const isV1 = (property: { displayOptions?: { show?: Record<string, unknown> } }) =>
+	JSON.stringify(property.displayOptions?.show?.['@version']) === '[1]';
 const credential = new PostSiderApi();
 
 test('credential stores the API key as a secret and tests the connection declaratively', () => {
@@ -53,14 +55,16 @@ test('node and credential declare light and dark icons', () => {
 
 test('node exposes the reviewed MVP resources and is usable as an AI tool', () => {
 	assert.equal(node.description.usableAsTool, true);
-	const resource = node.description.properties.find((property) => property.name === 'resource');
+	const resource = node.description.properties.find(
+		(property) => property.name === 'resource' && isV1(property),
+	);
 	const values = (resource?.options ?? []).map((option) => ('value' in option ? option.value : null));
 	assert.deepEqual(values, ['approval', 'channel', 'group', 'media', 'policy', 'post', 'scheduling']);
 });
 
 test('node exposes only the reviewed operations', () => {
 	const operationProperties = node.description.properties.filter(
-		(property) => property.name === 'operation',
+		(property) => property.name === 'operation' && isV1(property),
 	);
 	const byResource = Object.fromEntries(
 		operationProperties.map((property) => [
@@ -77,23 +81,28 @@ test('new operations expose their fields only for the right resource and operati
 	const find = (name: string) =>
 		collectProperties(node.description.properties).find((property) => property.name === name);
 	assert.deepEqual(find('approvalId')?.displayOptions?.show, {
+		'@version': [1],
 		resource: ['approval'],
 		operation: ['approve', 'reject'],
 	});
 	assert.deepEqual(find('note')?.displayOptions?.show, {
+		'@version': [1],
 		resource: ['approval'],
 		operation: ['approve', 'reject'],
 	});
 	assert.deepEqual(find('postId')?.displayOptions?.show?.operation, ['get', 'getStatus', 'request']);
 	assert.deepEqual(find('targetGroupId')?.displayOptions?.show, {
+		'@version': [1],
 		resource: ['group'],
 		operation: ['update', 'archive'],
 	});
 	assert.deepEqual(find('groupName')?.displayOptions?.show, {
+		'@version': [1],
 		resource: ['group'],
 		operation: ['create', 'update'],
 	});
 	assert.deepEqual(find('policyChannelPosts')?.displayOptions?.show, {
+		'@version': [1],
 		resource: ['policy'],
 		operation: ['check'],
 	});
@@ -105,6 +114,7 @@ test('approve and reject descriptions name the required scope', () => {
 	const approval = node.description.properties.find(
 		(property) =>
 			property.name === 'operation' &&
+			isV1(property) &&
 			(property.displayOptions?.show?.resource as string[])[0] === 'approval',
 	);
 	for (const value of ['approve', 'reject']) {
@@ -115,7 +125,7 @@ test('approve and reject descriptions name the required scope', () => {
 
 test('node exposes only safe MVP operations', () => {
 	const operationProperties = node.description.properties.filter(
-		(property) => property.name === 'operation',
+		(property) => property.name === 'operation' && isV1(property),
 	);
 	const operations = operationProperties.flatMap((property) =>
 		(property.options ?? []).map((option) => ('value' in option ? option.value : null)),
@@ -139,6 +149,7 @@ test('create post defaults to draft and exposes schedule date only for schedules
 		(property) => property.name === 'publishDate',
 	);
 	assert.deepEqual(publishDate?.displayOptions?.show, {
+		'@version': [1],
 		resource: ['post'],
 		operation: ['create'],
 		type: ['schedule'],
