@@ -10,8 +10,12 @@ import { NodeOperationError } from 'n8n-workflow';
 
 type PostSiderFunctions = IExecuteFunctions | ILoadOptionsFunctions;
 
-interface RequestInput {
+export interface RequestInput {
 	body?: IDataObject | IDataObject[];
+	/** Multipart body; sent as-is so the runtime sets the boundary header. */
+	formData?: FormData;
+	/** Overrides the default 30 s timeout (used by large uploads). */
+	timeout?: number;
 	qs?: IDataObject;
 	headers?: IDataObject;
 }
@@ -45,14 +49,19 @@ export function buildRequestOptions(
 	url: string,
 	input: RequestInput = {},
 ): IHttpRequestOptions {
+	const hasBody = method !== 'GET' && method !== 'HEAD';
 	return {
 		method,
 		url,
-		...(method === 'GET' || method === 'HEAD' ? {} : input.body ? { body: input.body } : {}),
+		...(hasBody && input.formData
+			? { body: input.formData }
+			: hasBody && input.body
+				? { body: input.body }
+				: {}),
 		...(input.qs ? { qs: input.qs } : {}),
 		...(input.headers ? { headers: input.headers } : {}),
-		json: true,
-		timeout: 30000,
+		...(input.formData ? {} : { json: true }),
+		timeout: input.timeout ?? 30000,
 		disableFollowRedirect: true,
 		sendCredentialsOnCrossOriginRedirect: false,
 	};
