@@ -17,6 +17,11 @@ import { buildChannelSettings, type PlatformSettingsInput } from './platformSett
 
 export type PublishWhen = 'now' | 'schedule' | 'nextSlot' | 'draft';
 
+export interface ThreadPartInput {
+	text: string;
+	delayMinutes: number;
+}
+
 export interface PublishInput {
 	channels: string[];
 	text: string;
@@ -30,6 +35,7 @@ export interface PublishInput {
 	tags: PostSiderTag[];
 	shortLink: boolean;
 	idempotencyKey: string;
+	threadParts?: ThreadPartInput[];
 }
 
 const YOUTUBE_TITLE_MIN = 2;
@@ -38,6 +44,7 @@ const WAIT_MIN_SECONDS = 1;
 const WAIT_MAX_SECONDS = 300;
 const DEFAULT_WAIT_INTERVAL_MS = 5000;
 
+const THREAD_DELAY_MAX_MINUTES = 1440;
 const CACHE_MAX_ENTRIES = 500;
 const CONFLICT_TEXT = 'already used with a different request';
 const ALREADY_SUBMITTED_MESSAGE =
@@ -153,12 +160,30 @@ function settingsFor(
 	return (settingsJson[channelId] as Record<string, unknown> | undefined) ?? {};
 }
 
+function validateThreadParts(node: INode, parts: ThreadPartInput[]): Array<{ content: string; delay?: number }> {
+	return parts.map((part, position) => {
+		const number = position + 1;
+		if (!String(part.text ?? '').trim()) {
+			throw new NodeOperationError(node, `Thread part ${number} needs text`);
+		}
+		const delay = Number(part.delayMinutes ?? 0);
+		if (!Number.isInteger(delay) || delay < 0 || delay > THREAD_DELAY_MAX_MINUTES) {
+			throw new NodeOperationError(
+				node,
+				`Thread part ${number} delay must be a whole number of minutes from 0 to ${THREAD_DELAY_MAX_MINUTES}`,
+			);
+		}
+		return { content: String(part.text), delay };
+	});
+}
+
 export function buildPublishRequest(
 	node: INode,
 	input: PublishInput,
 	providers: Record<string, string>,
 	resolvedDate: string,
 ): OperationRequest {
+	const thread = validateThreadParts(node, input.threadParts ?? []);
 	const channels: ChannelPostInput[] = input.channels.map((channelId) => {
 		const provider = providers[channelId];
 		if (!provider) {
@@ -192,6 +217,7 @@ export function buildPublishRequest(
 			content: text,
 			...(input.firstComment ? { firstComment: input.firstComment } : {}),
 			media: input.media,
+			...(thread.length > 0 ? { thread } : {}),
 			settings,
 		};
 	});
@@ -384,6 +410,15 @@ export async function executePublish(
 	const tags = (((options.tags as IDataObject | undefined)?.tag ?? []) as PostSiderTag[]).filter(
 		(tag) => tag && tag.value,
 	);
+	const threadParts = (
+		((options.threadParts as IDataObject | undefined)?.part ?? []) as Array<{
+			text?: unknown;
+			delayMinutes?: unknown;
+		}>
+	).map((part) => ({
+		text: String(part?.text ?? ''),
+		delayMinutes: Number(part?.delayMinutes ?? 0),
+	}));
 	const derivedKey = String(options.idempotencyKey ?? '').trim() === '';
 	const idempotencyKey = defaultIdempotencyKey(
 		node,
@@ -403,6 +438,7 @@ export async function executePublish(
 		tags,
 		shortLink: Boolean(options.shortLink),
 		idempotencyKey,
+		threadParts,
 	};
 	const scheduleDate =
 		when === 'schedule' ? resolvePublishDate(node, when, String(get('date', '')), now()) : undefined;

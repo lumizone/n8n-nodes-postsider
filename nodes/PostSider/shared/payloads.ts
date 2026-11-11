@@ -19,6 +19,8 @@ export interface ChannelPostInput {
 	content: string;
 	firstComment?: string;
 	media?: PostSiderMedia[];
+	/** Thread parts posted after the main text, in order. `delay` is minutes to wait before the part. */
+	thread?: Array<{ content: string; delay?: number }>;
 	settings?: Record<string, unknown>;
 }
 
@@ -38,7 +40,7 @@ export interface CreatePostBody {
 	creationMethod: 'API';
 	posts: Array<{
 		integration: { id: string };
-		value: Array<{ content: string; image: PostSiderMedia[] }>;
+		value: Array<{ content: string; image: PostSiderMedia[]; delay?: number }>;
 		firstComment?: string;
 		settings: Record<string, unknown>;
 	}>;
@@ -53,7 +55,14 @@ export function buildCreatePostBody(input: CreatePostInput): CreatePostBody {
 		creationMethod: 'API',
 		posts: input.channels.map((channel) => ({
 			integration: { id: channel.channelId },
-			value: [{ content: channel.content, image: channel.media ?? [] }],
+			value: [
+				{ content: channel.content, image: channel.media ?? [] },
+				...(channel.thread ?? []).map((part) => ({
+					content: part.content,
+					image: [] as PostSiderMedia[],
+					...(part.delay ? { delay: part.delay } : {}),
+				})),
+			],
 			...(channel.firstComment ? { firstComment: channel.firstComment } : {}),
 			settings: channel.settings ?? {},
 		})),

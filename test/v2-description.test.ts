@@ -68,6 +68,7 @@ test('v2 resources and operations match the reviewed surface', () => {
 		'publishing',
 	]);
 	assert.deepEqual(optionValues(v2Operation('post')), [
+		'changeStatus',
 		'check',
 		'delete',
 		'duplicate',
@@ -86,6 +87,7 @@ test('v2 resources and operations match the reviewed surface', () => {
 		'findNextSlot',
 		'getAnalytics',
 		'getMany',
+		'getOptions',
 		'getRules',
 	]);
 	assert.deepEqual(optionValues(v2Operation('publishing')), ['getState', 'pause']);
@@ -145,6 +147,7 @@ test('publish options collection carries the optional fields', () => {
 		'settingsJson',
 		'shortLink',
 		'tags',
+		'threadParts',
 		'waitForResult',
 		'waitTimeout',
 	]);

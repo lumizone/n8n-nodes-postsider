@@ -69,6 +69,21 @@ function buildChannelRequest(node: INode, operation: string, params: IDataObject
 				endpoint: `/integration-settings/${encodedId(node, params, 'channelId', 'Channel')}`,
 				input: {},
 			};
+		case 'getOptions': {
+			const methodName = String(params.tool ?? '').trim();
+			if (!methodName) throw new NodeOperationError(node, 'Option List is required');
+			const entries = (((params.toolData as IDataObject | undefined)?.field ?? []) as Array<{
+				key?: unknown;
+				value?: unknown;
+			}>).filter((entry) => String(entry?.key ?? '').trim() !== '');
+			const data: IDataObject = {};
+			for (const entry of entries) data[String(entry.key).trim()] = String(entry.value ?? '');
+			return {
+				method: 'POST',
+				endpoint: `/integration-trigger/${encodedId(node, params, 'channelId', 'Channel')}`,
+				input: { body: { methodName, data } },
+			};
+		}
 		case 'findNextSlot':
 			return {
 				method: 'GET',
@@ -188,6 +203,13 @@ function readParams(ctx: IExecuteFunctions, index: number, resource: string, ope
 	if (resource === 'channel') {
 		if (operation === 'getMany') {
 			return { groupId: get('groupId', ''), includeDisabled: get('includeDisabled', false) } as IDataObject;
+		}
+		if (operation === 'getOptions') {
+			return {
+				channelId: get('channelId', ''),
+				tool: get('tool', ''),
+				toolData: get('toolData', {}),
+			} as IDataObject;
 		}
 		return { channelId: get('channelId', ''), days: get('days', DEFAULT_ANALYTICS_DAYS) } as IDataObject;
 	}

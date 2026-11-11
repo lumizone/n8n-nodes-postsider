@@ -12,6 +12,9 @@ All notable changes to this project will be documented in this file.
 - Media from the input item's binary data (default property `data`), from public URLs, or from already uploaded files.
 - Platform settings with safe defaults (X reply setting, YouTube visibility and title, TikTok privacy and required toggles, Instagram post type, Pinterest board, LinkedIn carousel) and a Settings JSON option, either one object or keyed by channel ID.
 - Wait for Result: polls every 5 seconds up to the timeout (maximum 300 seconds) and returns PUBLISHED with `releaseURL`, ERROR with `error`, or `timedOut`.
+- Post > Publish option Thread Parts: extra texts posted after the main text as a thread or follow-up comments, each with an optional delay in minutes (0 to 1440).
+- Post > Change Status: move a post between draft and queue.
+- Channel > Get Options: list values from a channel's platform, such as Pinterest boards or Discord and Slack channels.
 - Post operations: Update (keeps stored settings), Delete, Duplicate, Retry Failed, Check, Rewrite with AI, Get Analytics. Get Many now has next 7 days, last 7 days and custom ranges with state, channel and group filters.
 - Media operations: Upload, Get Many, Delete.
 - Channel operations: Get Rules, Find Next Slot, Get Analytics, Enable, Disable.

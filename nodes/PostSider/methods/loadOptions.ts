@@ -34,3 +34,31 @@ export async function getGroups(this: ILoadOptionsFunctions): Promise<INodePrope
 		),
 	];
 }
+
+interface ChannelTool {
+	methodName?: string;
+	description?: string;
+	dataSchema?: Array<{ key?: string }>;
+}
+
+export async function getChannelTools(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
+	const channelId = String(this.getCurrentNodeParameter('channelId') ?? '').trim();
+	if (!channelId) return [];
+	const settings = await (postSiderApiRequest<{ output?: { tools?: ChannelTool[] | null } }>).call(
+		this,
+		'GET',
+		`/integration-settings/${encodeURIComponent(channelId)}`,
+	);
+	const tools = settings?.output?.tools;
+	if (!Array.isArray(tools)) return [];
+	return tools
+		.filter((tool) => tool && tool.methodName)
+		.map((tool) => {
+			const keys = (tool.dataSchema ?? []).map((field) => field.key).filter(Boolean);
+			return {
+				name: tool.description || String(tool.methodName),
+				value: String(tool.methodName),
+				...(keys.length > 0 ? { description: `Needs input: ${keys.join(', ')}` } : {}),
+			};
+		});
+}

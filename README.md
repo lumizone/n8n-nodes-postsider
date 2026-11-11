@@ -91,6 +91,7 @@ Other media modes: **Public URLs** (one HTTPS URL per line or comma-separated) a
 
 - **First Comment**: posted right after the post, where the platform supports it.
 - **Per-Channel Text**: a different text for a specific channel. Other channels use **Text**.
+- **Thread Parts**: extra texts that post after the main text, in order. They become a thread on X, Threads, Bluesky and Mastodon, and follow-up comments on platforms that support them. Each part has its own text and an optional **Delay (Minutes)** from 0 to 1440. Media goes on the first post only, and **Per-Channel Text** replaces only the first text; the parts are sent to every selected channel.
 - **Platform Settings**: X reply setting and community, YouTube visibility, made for kids and title, TikTok privacy, comments, duet, stitch and auto music, Instagram and Facebook post type, Pinterest board and link, LinkedIn image carousel, and a title for article platforms. A setting is applied only to channels of that platform.
 - **Settings JSON**: raw provider settings, merged last. Give one object for every channel, or an object keyed by channel ID.
 - **Tags** and **Shorten Links**.
@@ -141,6 +142,7 @@ The PostSider node can be used as a tool by n8n AI agents. Operations have plain
 | Approval | Approve / Reject | Decide a pending approval (optional note) |
 | Channel | Get Many | List connected channels, optionally by group or including disabled ones |
 | Channel | Get Rules | Limits and required settings of a channel |
+| Channel | Get Options | List options from a channel's platform, such as Pinterest boards or Discord and Slack channels, to use in platform settings or Settings JSON. Some lists take an input such as a search word |
 | Channel | Find Next Slot | Find the next free queue slot for a channel |
 | Channel | Get Analytics | Analytics of a channel over a number of days |
 | Channel | Enable / Disable | Turn a channel on or off without disconnecting it |
@@ -155,6 +157,7 @@ The PostSider node can be used as a tool by n8n AI agents. Operations have plain
 | Post | Get | Retrieve that post and its thread (the follow-up posts). Other channels of the same group are not included; use Get Many to see them |
 | Post | Get Many | List posts for the next 7 days, the last 7 days or a custom range; filter by state, channel and group |
 | Post | Update | Change text, time, first comment, media or settings; stored settings are kept |
+| Post | Change Status | Move a post between draft and queue: Schedule queues a draft for its saved date, Draft takes a queued post out of the queue |
 | Post | Delete | Delete a post. This deletes the whole group (all channel versions) |
 | Post | Duplicate | Create a draft copy, optionally for another channel or date |
 | Post | Retry Failed | Republish a failed post instead of creating a duplicate |
@@ -178,7 +181,7 @@ Create the key with the scopes your workflow needs. Typical ones:
 | --- | --- |
 | Post Publish | `posts:write` and `channels:read`; plus `media:write` for binary or URL media, and `posts:read` for Next Free Slot and Wait for Result |
 | Post Update | `posts:write`; plus `posts:read` when you change platform settings, and `media:write` for new media |
-| Post Delete, Duplicate, Retry Failed | `posts:write` |
+| Post Delete, Duplicate, Retry Failed, Change Status | `posts:write` |
 | Post Check, Rewrite | `posts:write` |
 | Post Get, Get Many; PostSider Trigger | `posts:read` |
 | Post Get Analytics | `analytics:read` |
@@ -192,6 +195,7 @@ Create the key with the scopes your workflow needs. Typical ones:
 | Channel Get Many, Get Rules; Group Get Many | `channels:read` |
 | Channel Find Next Slot | `posts:read` |
 | Channel Get Analytics | `analytics:read` |
+| Channel Get Options | `channels:write` (the server asks for it, although the operation only reads) |
 | Channel Enable, Disable; Group Create, Rename, Archive | `channels:write` |
 | Publishing Get State | `publishing:read` |
 | Publishing Pause | `publishing:write` |

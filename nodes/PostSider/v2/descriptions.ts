@@ -113,6 +113,13 @@ const operationProperties: INodeProperties[] = [
 				description: 'Retrieve connected social channels',
 			},
 			{
+				name: 'Get Options',
+				value: 'getOptions',
+				action: "List options from a channel's platform",
+				description:
+					'List values such as Pinterest boards or Discord and Slack channels, to use in platform settings or Settings JSON',
+			},
+			{
 				name: 'Get Rules',
 				value: 'getRules',
 				action: 'Get channel rules',
@@ -197,6 +204,13 @@ const operationProperties: INodeProperties[] = [
 	operation(
 		'post',
 		[
+			{
+				name: 'Change Status',
+				value: 'changeStatus',
+				action: 'Move a post between draft and queue',
+				description:
+					'Schedule queues a draft for its saved date, Draft takes a queued post out of the queue',
+			},
 			{
 				name: 'Check',
 				value: 'check',
@@ -620,6 +634,41 @@ const publishFields: INodeProperties[] = [
 				],
 			},
 			{
+				displayName: 'Thread Parts',
+				name: 'threadParts',
+				type: 'fixedCollection',
+				typeOptions: { multipleValues: true },
+				placeholder: 'Add Thread Part',
+				default: {},
+				description:
+					'Texts that post after the main text, in order: as a thread on X, Threads, Bluesky and Mastodon, and as follow-up comments on platforms that support them',
+				options: [
+					{
+						name: 'part',
+						displayName: 'Part',
+						values: [
+							{
+								displayName: 'Text',
+								name: 'text',
+								type: 'string',
+								typeOptions: { rows: 3 },
+								required: true,
+								default: '',
+								description: 'Text of this part',
+							},
+							{
+								displayName: 'Delay (Minutes)',
+								name: 'delayMinutes',
+								type: 'number',
+								typeOptions: { minValue: 0, maxValue: 1440 },
+								default: 0,
+								description: 'Minutes to wait before posting this part. 0 posts it right after the previous one.',
+							},
+						],
+					},
+				],
+			},
+			{
 				displayName: 'Wait for Result',
 				name: 'waitForResult',
 				type: 'boolean',
@@ -690,6 +739,20 @@ const postOperationFields: INodeProperties[] = [
 	),
 	postIdField('ID of the post to copy. The copy is saved as a draft.', ['duplicate']),
 	postIdField('ID of the published post to read analytics for', ['getAnalytics']),
+	postIdField('ID of the post to move between draft and queue', ['changeStatus']),
+	{
+		displayName: 'Status',
+		name: 'status',
+		type: 'options',
+		options: [
+			{ name: 'Draft', value: 'draft', description: 'Take a queued post out of the queue' },
+			{ name: 'Schedule', value: 'schedule', description: 'Queue a draft for its saved date' },
+		],
+		default: 'schedule',
+		description:
+			'Schedule queues a draft for its saved date. Draft takes a queued post out of the queue. The response may include the policy result and whether approval was requested.',
+		displayOptions: { show: postOp('changeStatus') },
+	},
 	{
 		displayName: 'Group ID',
 		name: 'postGroup',
@@ -1105,8 +1168,51 @@ const otherFields: INodeProperties[] = [
 		description:
 			'Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>',
 		displayOptions: {
-			show: show('channel', 'getRules', 'findNextSlot', 'getAnalytics', 'enable', 'disable'),
+			show: show('channel', 'getRules', 'getOptions', 'findNextSlot', 'getAnalytics', 'enable', 'disable'),
 		},
+	},
+	{
+		displayName: 'Option List Name or ID',
+		name: 'tool',
+		type: 'options',
+		typeOptions: { loadOptionsMethod: 'getChannelTools', loadOptionsDependsOn: ['channelId'] },
+		default: '',
+		required: true,
+		description:
+			'Which list to load from the platform. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
+		displayOptions: { show: show('channel', 'getOptions') },
+	},
+	{
+		displayName: 'List Inputs',
+		name: 'toolData',
+		type: 'fixedCollection',
+		typeOptions: { multipleValues: true },
+		placeholder: 'Add Input',
+		default: {},
+		description: 'Inputs some lists need, such as a search word',
+		displayOptions: { show: show('channel', 'getOptions') },
+		options: [
+			{
+				name: 'field',
+				displayName: 'Input',
+				values: [
+					{
+						displayName: 'Key',
+						name: 'key',
+						type: 'string',
+						default: '',
+						description: 'Input name, for example word',
+					},
+					{
+						displayName: 'Value',
+						name: 'value',
+						type: 'string',
+						default: '',
+						description: 'Input value',
+					},
+				],
+			},
+		],
 	},
 	{
 		displayName: 'Days',

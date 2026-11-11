@@ -8,7 +8,7 @@ import type {
 } from 'n8n-workflow';
 import { NodeApiError, NodeConnectionTypes, NodeOperationError } from 'n8n-workflow';
 
-import { getChannels, getGroups } from './methods/loadOptions';
+import { getChannels, getChannelTools, getGroups } from './methods/loadOptions';
 import { fieldProperties, operationProperties, resourceProperty } from './resources/descriptions';
 import { readControlParameters, runControlRequest } from './shared/approvals';
 import { extractList, normalizePostResponse, simplifyPostResponse } from './shared/operations';
@@ -114,6 +114,7 @@ export class PostSider implements INodeType {
 	methods = {
 		loadOptions: {
 			getChannels,
+			getChannelTools,
 			getGroups,
 		},
 	};

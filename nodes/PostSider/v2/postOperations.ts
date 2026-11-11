@@ -161,6 +161,17 @@ export function buildPostRequest(
 				input: { body },
 			};
 		}
+		case 'changeStatus': {
+			const status = String(params.status ?? 'schedule');
+			if (status !== 'draft' && status !== 'schedule') {
+				throw new NodeOperationError(node, 'Status must be Draft or Schedule');
+			}
+			return {
+				method: 'PUT',
+				endpoint: `/posts/${encodedId(node, params, 'postId', 'Post ID')}/status`,
+				input: { body: { status } },
+			};
+		}
 		case 'retryFailed':
 			return {
 				method: 'POST',
@@ -289,6 +300,10 @@ export async function executePostOperation(
 		}
 		case 'delete':
 			params.postId = get('postId', '');
+			break;
+		case 'changeStatus':
+			params.postId = get('postId', '');
+			params.status = get('status', 'schedule');
 			break;
 		case 'duplicate': {
 			const options = get('duplicateOptions', {}) as IDataObject;

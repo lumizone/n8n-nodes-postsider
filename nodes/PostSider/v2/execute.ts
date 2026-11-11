@@ -12,6 +12,7 @@ const POST_OPERATIONS = new Set([
 	'delete',
 	'duplicate',
 	'retryFailed',
+	'changeStatus',
 	'check',
 	'rewrite',
 	'getAnalytics',
