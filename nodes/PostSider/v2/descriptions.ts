@@ -282,6 +282,149 @@ const operationProperties: INodeProperties[] = [
 
 const publishOnly = { ...V2, resource: ['post'], operation: ['publish'] };
 
+/** Platform settings collection, shared by Publish and Update (nested inside each operation's Options). */
+export const platformSettingsProperty: INodeProperties = {
+	displayName: 'Platform Settings',
+	name: 'platformSettings',
+	type: 'collection',
+	placeholder: 'Add Platform Setting',
+	default: {},
+	description:
+		'Settings for specific platforms. Each field only applies to the platforms named in its description; safe defaults are added for the rest.',
+	options: [
+		{
+			displayName: 'Instagram or Facebook Post Type',
+			name: 'instagramPostType',
+			type: 'options',
+			options: [
+				{ name: 'Post', value: 'post' },
+				{ name: 'Story', value: 'story' },
+			],
+			default: 'post',
+			description: 'Whether to publish as a post or a story. Applies to Instagram, Instagram Standalone and Facebook.',
+		},
+		{
+			displayName: 'LinkedIn Image Carousel',
+			name: 'linkedinCarousel',
+			type: 'boolean',
+			default: false,
+			description: 'Whether to publish the images as a carousel. Applies to LinkedIn and LinkedIn Page.',
+		},
+		{
+			displayName: 'Pinterest Board',
+			name: 'pinterestBoard',
+			type: 'string',
+			default: '',
+			description: 'ID of the board to pin to. Required by Pinterest. Use Channel > List Options to find board IDs.',
+		},
+		{
+			displayName: 'Pinterest Link',
+			name: 'link',
+			type: 'string',
+			default: '',
+			description: 'Destination URL of the pin. Applies to Pinterest.',
+		},
+		{
+			displayName: 'TikTok Allow Comments',
+			name: 'tiktokAllowComments',
+			type: 'boolean',
+			default: true,
+			description: 'Whether viewers can comment. Applies to TikTok.',
+		},
+		{
+			displayName: 'TikTok Allow Duet',
+			name: 'tiktokAllowDuet',
+			type: 'boolean',
+			default: false,
+			description: 'Whether viewers can duet the video. Applies to TikTok.',
+		},
+		{
+			displayName: 'TikTok Allow Stitch',
+			name: 'tiktokAllowStitch',
+			type: 'boolean',
+			default: false,
+			description: 'Whether viewers can stitch the video. Applies to TikTok.',
+		},
+		{
+			displayName: 'TikTok Auto Add Music',
+			name: 'tiktokAutoAddMusic',
+			type: 'options',
+			options: [
+				{ name: 'No', value: 'no' },
+				{ name: 'Yes', value: 'yes' },
+			],
+			default: 'no',
+			description: 'Whether TikTok adds recommended music automatically. Applies to TikTok.',
+		},
+		{
+			displayName: 'TikTok Privacy',
+			name: 'tiktokPrivacy',
+			type: 'options',
+			options: [
+				{ name: 'Followers of Creator', value: 'FOLLOWER_OF_CREATOR' },
+				{ name: 'Mutual Follow Friends', value: 'MUTUAL_FOLLOW_FRIENDS' },
+				{ name: 'Only Me', value: 'SELF_ONLY' },
+				{ name: 'Public', value: 'PUBLIC_TO_EVERYONE' },
+			],
+			default: 'PUBLIC_TO_EVERYONE',
+			description: 'Who can see the video. Applies to TikTok.',
+		},
+		{
+			displayName: 'Title',
+			name: 'title',
+			type: 'string',
+			default: '',
+			description:
+				'Title of the post or article. Applies to YouTube (default: first 100 characters of the text), TikTok, Pinterest, Dev.to, Medium, Hashnode, WordPress, Ghost and Blogger.',
+		},
+		{
+			displayName: 'X Community URL',
+			name: 'xCommunity',
+			type: 'string',
+			default: '',
+			placeholder: 'https://x.com/i/communities/1493446837214187523',
+			description: 'Post into this X community. Applies to X.',
+		},
+		{
+			displayName: 'X Who Can Reply',
+			name: 'xWhoCanReply',
+			type: 'options',
+			options: [
+				{ name: 'Everyone', value: 'everyone' },
+				{ name: 'Following', value: 'following' },
+				{ name: 'Mentioned Users', value: 'mentionedUsers' },
+				{ name: 'Subscribers', value: 'subscribers' },
+				{ name: 'Verified', value: 'verified' },
+			],
+			default: 'everyone',
+			description: 'Who is allowed to reply. Applies to X.',
+		},
+		{
+			displayName: 'YouTube Made for Kids',
+			name: 'youtubeMadeForKids',
+			type: 'options',
+			options: [
+				{ name: 'No', value: 'no' },
+				{ name: 'Yes', value: 'yes' },
+			],
+			default: 'no',
+			description: 'Whether the video is made for kids. Applies to YouTube.',
+		},
+		{
+			displayName: 'YouTube Visibility',
+			name: 'youtubeVisibility',
+			type: 'options',
+			options: [
+				{ name: 'Private', value: 'private' },
+				{ name: 'Public', value: 'public' },
+				{ name: 'Unlisted', value: 'unlisted' },
+			],
+			default: 'public',
+			description: 'Who can watch the video. Applies to YouTube.',
+		},
+	],
+};
+
 const publishFields: INodeProperties[] = [
 	{
 		displayName: 'Channel Names or IDs',
@@ -427,6 +570,7 @@ const publishFields: INodeProperties[] = [
 					},
 				],
 			},
+			platformSettingsProperty,
 			{
 				displayName: 'Settings JSON',
 				name: 'settingsJson',

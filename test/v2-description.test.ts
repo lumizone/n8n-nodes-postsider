@@ -141,6 +141,7 @@ test('publish options collection carries the optional fields', () => {
 		'firstComment',
 		'idempotencyKey',
 		'perChannelText',
+		'platformSettings',
 		'settingsJson',
 		'shortLink',
 		'tags',
