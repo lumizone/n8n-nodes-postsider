@@ -8,55 +8,19 @@ import type {
 } from 'n8n-workflow';
 import { NodeApiError, NodeConnectionTypes, NodeOperationError } from 'n8n-workflow';
 
-import { getChannels, getGroups } from './methods/loadOptions';
+import { getChannels, getChannelTools, getGroups } from './methods/loadOptions';
 import { fieldProperties, operationProperties, resourceProperty } from './resources/descriptions';
-import {
-	MAX_APPROVAL_PAGES,
-	buildOperationRequest,
-	buildApprovalReadRequest,
-	extractList,
-	readDecisionBinding,
-	nextCursor,
-	normalizePostResponse,
-	simplifyPostResponse,
-} from './shared/operations';
-import { postSiderApiRequest } from './shared/transport';
+import { readControlParameters, runControlRequest } from './shared/approvals';
+import { extractList, normalizePostResponse, simplifyPostResponse } from './shared/operations';
+import { v2Properties } from './v2/descriptions';
+import { executeV2 } from './v2/execute';
 
 function getParameters(context: IExecuteFunctions, resource: string, operation: string, index: number) {
 	const get = (name: string, fallback?: unknown) => context.getNodeParameter(name, index, fallback);
-	if (resource === 'channel') return { groupId: get('groupId', '') };
-	if (resource === 'group') {
-		if (operation === 'create') return { groupName: get('groupName') };
-		if (operation === 'update') {
-			return { targetGroupId: get('targetGroupId'), groupName: get('groupName') };
-		}
-		if (operation === 'archive') return { targetGroupId: get('targetGroupId') };
-		return {};
-	}
-	if (resource === 'policy') {
-		if (operation !== 'check') return {};
-		return {
-			type: get('policyType', 'draft'),
-			publishDate: get('policyPublishDate', ''),
-			channelPosts: get('policyChannelPosts'),
-		};
-	}
+	const control = readControlParameters(context, resource, operation, index);
+	if (control) return control;
 	if (resource === 'media') return { url: get('url') };
 	if (resource === 'scheduling') return { channelId: get('channelId') };
-	if (resource === 'approval') {
-		if (operation === 'getMany') {
-			return {
-				status: get('approvalStatus', ''),
-				since: get('since', ''),
-				returnAll: get('returnAll', false),
-				limit: get('limit', 50),
-			};
-		}
-		if (operation === 'approve' || operation === 'reject') {
-			return { approvalId: get('approvalId'), note: get('note', '') };
-		}
-		return { postId: get('postId') };
-	}
 	if (resource === 'post' && operation === 'create') {
 		return {
 			type: get('type'),
@@ -135,7 +99,8 @@ export class PostSider implements INodeType {
 		name: 'postSider',
 		icon: { light: 'file:postsider.svg', dark: 'file:postsider.dark.svg' },
 		group: ['output'],
-		version: 1,
+		version: [1, 2],
+		defaultVersion: 2,
 		subtitle: '={{$parameter["operation"] + ": " + $parameter["resource"]}}',
 		description: 'Prepare, schedule, and review social media posts with PostSider',
 		defaults: { name: 'PostSider' },
@@ -143,17 +108,19 @@ export class PostSider implements INodeType {
 		outputs: [NodeConnectionTypes.Main],
 		usableAsTool: true,
 		credentials: [{ name: 'postSiderApi', required: true }],
-		properties: [resourceProperty, ...operationProperties, ...fieldProperties],
+		properties: [resourceProperty, ...operationProperties, ...fieldProperties, ...v2Properties],
 	};
 
 	methods = {
 		loadOptions: {
 			getChannels,
+			getChannelTools,
 			getGroups,
 		},
 	};
 
 	async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
+		if (this.getNode().typeVersion >= 2) return executeV2.call(this);
 		const items = this.getInputData();
 		const returnData: INodeExecutionData[] = [];
 		for (let index = 0; index < items.length; index++) {
@@ -161,67 +128,7 @@ export class PostSider implements INodeType {
 				const resource = this.getNodeParameter('resource', index) as string;
 				const operation = this.getNodeParameter('operation', index) as string;
 				const parameters = getParameters(this, resource, operation, index) as IDataObject;
-				if (resource === 'approval' && (operation === 'approve' || operation === 'reject')) {
-					parameters.nodeName = this.getNode().name;
-					// Validate before any network call; then bind the decision to the
-					// current stage and round. A failed read falls back to a random key.
-					const read = buildApprovalReadRequest(this.getNode(), parameters);
-					try {
-						const current = await (postSiderApiRequest<unknown>).call(
-							this,
-							read.method,
-							read.endpoint,
-							read.input,
-						);
-						Object.assign(parameters, readDecisionBinding(current) ?? {});
-					} catch {
-						// no binding
-					}
-				}
-				const request = buildOperationRequest(
-					this.getNode(),
-					resource,
-					operation,
-					parameters,
-					this.getExecutionId(),
-					index,
-				);
-
-				let response: unknown;
-				if (resource === 'approval' && operation === 'getMany') {
-					const approvals: unknown[] = [];
-					let cursor: string | undefined;
-					const pages = parameters.returnAll ? MAX_APPROVAL_PAGES : 1;
-					for (let page = 0; page < pages; page++) {
-						const pageRequest = cursor
-							? buildOperationRequest(
-									this.getNode(),
-									resource,
-									operation,
-									{ ...parameters, cursor },
-									this.getExecutionId(),
-									index,
-								)
-							: request;
-						const pageResponse = await (postSiderApiRequest<unknown>).call(
-							this,
-							pageRequest.method,
-							pageRequest.endpoint,
-							pageRequest.input,
-						);
-						approvals.push(...extractList(pageResponse));
-						cursor = nextCursor(pageResponse);
-						if (!cursor) break;
-					}
-					response = approvals;
-				} else {
-					response = await (postSiderApiRequest<unknown>).call(
-						this,
-						request.method,
-						request.endpoint,
-						request.input,
-					);
-				}
+				const response = await runControlRequest(this, resource, operation, parameters, index);
 				const simplify = Boolean(parameters.simplify ?? false);
 				const output = prepareOutput(resource, operation, response, simplify);
 				returnData.push(

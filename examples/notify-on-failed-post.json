@@ -1,0 +1,45 @@
+{
+  "name": "PostSider: React to a Failed Post",
+  "nodes": [
+    {
+      "parameters": {
+        "events": ["failed"],
+        "channels": [],
+        "pollTimes": { "item": [{ "mode": "everyMinute" }] }
+      },
+      "id": "failed-trigger",
+      "name": "PostSider Trigger",
+      "type": "n8n-nodes-postsider.postSiderTrigger",
+      "typeVersion": 1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "failed-message",
+              "name": "message",
+              "value": "=A PostSider post failed: {{ $json.id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "build-message",
+      "name": "Build Message",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [260, 0]
+    }
+  ],
+  "connections": {
+    "PostSider Trigger": {
+      "main": [[{ "node": "Build Message", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": {},
+  "versionId": "postsider-example-failed-post-v1"
+}

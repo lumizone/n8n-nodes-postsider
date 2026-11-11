@@ -14,7 +14,7 @@ const operation = (
 	default: defaultValue,
 });
 
-export const resourceProperty: INodeProperties = {
+const resourcePropertyBase: INodeProperties = {
 	displayName: 'Resource',
 	name: 'resource',
 	type: 'options',
@@ -31,7 +31,7 @@ export const resourceProperty: INodeProperties = {
 	default: 'post',
 };
 
-export const operationProperties: INodeProperties[] = [
+const operationPropertiesBase: INodeProperties[] = [
 	operation(
 		'approval',
 		[
@@ -207,7 +207,7 @@ const groupFilter = (resource: 'channel' | 'post'): INodeProperties => ({
 const policyOnly = { resource: ['policy'], operation: ['check'] };
 const groupNameOperations = { resource: ['group'], operation: ['create', 'update'] };
 
-export const fieldProperties: INodeProperties[] = [
+const fieldPropertiesBase: INodeProperties[] = [
 	postId,
 	{
 		displayName: 'Approval ID',
@@ -519,3 +519,16 @@ export const fieldProperties: INodeProperties[] = [
 		displayOptions: { show: { resource: ['media'], operation: ['importFromUrl'] } },
 	},
 ];
+
+// Version 1 properties are hidden on node version 2, which declares its own surface.
+const onlyVersion1 = (property: INodeProperties): INodeProperties => ({
+	...property,
+	displayOptions: {
+		...property.displayOptions,
+		show: { ...property.displayOptions?.show, '@version': [1] },
+	},
+});
+
+export const resourceProperty: INodeProperties = onlyVersion1(resourcePropertyBase);
+export const operationProperties: INodeProperties[] = operationPropertiesBase.map(onlyVersion1);
+export const fieldProperties: INodeProperties[] = fieldPropertiesBase.map(onlyVersion1);

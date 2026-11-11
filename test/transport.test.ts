@@ -59,3 +59,17 @@ test('buildRequestOptions includes JSON body, query string, and explicit headers
 		},
 	);
 });
+
+test('buildRequestOptions sends multipart FormData as body without json or content type', () => {
+	const formData = new FormData();
+	formData.append('file', new Blob(['x'], { type: 'image/png' }), 'a.png');
+	const options = buildRequestOptions('POST', 'https://api.postsider.com/public/v1/upload', {
+		formData,
+		timeout: 120000,
+	});
+	assert.equal(options.body, formData);
+	assert.equal('json' in options, false);
+	assert.equal(options.headers, undefined);
+	assert.equal(options.timeout, 120000);
+	assert.equal(options.disableFollowRedirect, true);
+});

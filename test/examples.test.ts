@@ -4,6 +4,9 @@ import test from 'node:test';
 
 import draftWorkflow from '../examples/import-media-and-create-draft.json';
 import scheduleWorkflow from '../examples/find-slot-and-schedule.json';
+import approvalWorkflow from '../examples/approval-notify-slack.json';
+import publishNowWorkflow from '../examples/publish-now-with-image.json';
+import failedPostWorkflow from '../examples/notify-on-failed-post.json';
 
 test('example workflows remain inactive and use only draft or explicit schedule writes', () => {
 	for (const workflow of [draftWorkflow, scheduleWorkflow]) {
@@ -22,7 +25,6 @@ test('schedule example lets the node derive an execution-scoped idempotency key'
 	assert.equal('idempotencyKey' in scheduleNode.parameters, false);
 });
 
-import approvalWorkflow from '../examples/approval-notify-slack.json';
 
 test('approval example is inactive, uses only allowed node types and keeps decisions disabled', () => {
 	assert.equal(approvalWorkflow.active, false);
@@ -57,4 +59,32 @@ test('approval example holds no secret-like strings', () => {
 	assert.doesNotMatch(text, /hooks\.slack\.com/);
 	assert.doesNotMatch(text, /sk_[A-Za-z0-9]{8,}|xox[a-z]-|Bearer\s+[A-Za-z0-9]/);
 	assert.doesNotMatch(text, /"(apiKey|secret|token|password)"\s*:\s*"[^"]/i);
+});
+
+
+test('publish-now example uses node version 2 with binary media and waits for the result', () => {
+	assert.equal(publishNowWorkflow.active, false);
+	const node = publishNowWorkflow.nodes.find((n) => n.type === 'n8n-nodes-postsider.postSider');
+	assert.ok(node);
+	assert.equal(node.typeVersion, 2);
+	assert.equal(node.parameters.operation, 'publish');
+	assert.equal(node.parameters.when, 'now');
+	assert.equal(node.parameters.mediaSource, 'binary');
+	assert.equal((node.parameters.options as { waitForResult?: boolean }).waitForResult, true);
+});
+
+test('failed-post example is inactive and uses the trigger with generic nodes only', () => {
+	assert.equal(failedPostWorkflow.active, false);
+	const trigger = failedPostWorkflow.nodes.find((n) => n.type === 'n8n-nodes-postsider.postSiderTrigger');
+	assert.ok(trigger);
+	assert.deepEqual(trigger.parameters.events, ['failed']);
+	for (const node of failedPostWorkflow.nodes) {
+		assert.match(node.type, /^n8n-nodes-(base|postsider)\./);
+	}
+});
+
+test('new examples contain no em or en dashes', () => {
+	for (const workflow of [publishNowWorkflow, failedPostWorkflow]) {
+		assert.doesNotMatch(JSON.stringify(workflow), /[–—]/);
+	}
 });
