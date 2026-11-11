@@ -126,7 +126,7 @@ See `examples/notify-on-failed-post.json`.
 
 ## AI agents
 
-Both nodes can be used as tools by n8n AI agents. Operations have plain descriptions written for the model, for example "Publish a post" and "Check a post before publishing".
+The PostSider node can be used as a tool by n8n AI agents. Operations have plain descriptions written for the model, for example "Publish a post" and "Check a post before publishing".
 
 ## Operations (version 2)
 

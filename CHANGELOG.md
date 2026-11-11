@@ -17,7 +17,7 @@ All notable changes to this project will be documented in this file.
 - Channel operations: Get Rules, Find Next Slot, Get Analytics, Enable, Disable.
 - Publishing operations: Get State and Pause. Resume is only available in the PostSider dashboard.
 - PostSider Trigger node (polling): Post Published, Post Failed and Post Scheduled, with an optional channel filter.
-- AI agent tool support for the nodes, with plain operation descriptions.
+- AI agent tool support for the PostSider node, with plain operation descriptions.
 - Examples: `publish-now-with-image.json` and `notify-on-failed-post.json`.
 
 ### Changed

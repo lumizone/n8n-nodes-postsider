@@ -625,7 +625,7 @@ const publishFields: INodeProperties[] = [
 				type: 'boolean',
 				default: false,
 				description:
-					'Whether to wait until publishing finishes and return the final status and link. Only applies when publishing now.',
+					'Whether to wait until publishing finishes and return the final status and link. Only applies when publishing now or in the next free slot.',
 			},
 			{
 				displayName: 'Wait Timeout (Seconds)',
