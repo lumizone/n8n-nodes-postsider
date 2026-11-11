@@ -1,7 +1,20 @@
 import type { IDataObject, IExecuteFunctions, INodeExecutionData, JsonObject } from 'n8n-workflow';
 import { NodeApiError, NodeOperationError } from 'n8n-workflow';
 
+import { executePostOperation } from './postOperations';
 import { executePublish, type IntegrationCache } from './publish';
+
+const POST_OPERATIONS = new Set([
+	'get',
+	'getMany',
+	'update',
+	'delete',
+	'duplicate',
+	'retryFailed',
+	'check',
+	'rewrite',
+	'getAnalytics',
+]);
 
 export async function executeV2(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
 	const items = this.getInputData();
@@ -15,6 +28,8 @@ export async function executeV2(this: IExecuteFunctions): Promise<INodeExecution
 			let output: IDataObject[];
 			if (resource === 'post' && operation === 'publish') {
 				output = await executePublish(this, index, integrations);
+			} else if (resource === 'post' && POST_OPERATIONS.has(operation)) {
+				output = await executePostOperation(this, index, operation);
 			} else {
 				throw new NodeOperationError(
 					this.getNode(),

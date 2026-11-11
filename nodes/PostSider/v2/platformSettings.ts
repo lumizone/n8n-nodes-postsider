@@ -60,14 +60,16 @@ function set(target: Record<string, unknown>, key: string, value: unknown): void
 /**
  * Settings for one channel: safe defaults first, then the user fields that apply to the provider,
  * then the Settings JSON object (`extra`) last so it always wins. `__type` is never set.
+ * `withDefaults` false skips the safe defaults (used by Update, which must not overwrite stored values).
  */
 export function buildChannelSettings(
 	provider: string,
 	text: string,
 	options: PlatformSettingsInput,
 	extra: Record<string, unknown>,
+	withDefaults = true,
 ): Record<string, unknown> {
-	const settings = defaultsFor(provider, text);
+	const settings = withDefaults ? defaultsFor(provider, text) : {};
 
 	if (provider === 'x') {
 		set(settings, 'who_can_reply_post', options.xWhoCanReply);
