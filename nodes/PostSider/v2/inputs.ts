@@ -4,7 +4,10 @@ import { NodeOperationError } from 'n8n-workflow';
 import { assertMediaUrl } from '../shared/mediaUrl';
 import type { PostSiderMedia } from '../shared/payloads';
 
-function splitList(value: unknown): string[] {
+/** URLs are separated by new lines, or by a comma that is followed by the next `http(s)://` URL. */
+const URL_SEPARATOR = /\n|,(?=\s*https?:)/i;
+
+function splitList(value: unknown, separator: RegExp = /[\n,]/): string[] {
 	let items: unknown[];
 	if (Array.isArray(value)) {
 		items = value;
@@ -15,10 +18,10 @@ function splitList(value: unknown): string[] {
 				const parsed: unknown = JSON.parse(text);
 				items = Array.isArray(parsed) ? parsed : [text];
 			} catch {
-				items = text.split(/[\n,]/);
+				items = text.split(separator);
 			}
 		} else {
-			items = text.split(/[\n,]/);
+			items = text.split(separator);
 		}
 	} else {
 		items = [];
@@ -40,7 +43,7 @@ export function parseIdList(node: INode, value: unknown, displayName: string): s
 }
 
 export function parseUrlList(node: INode, value: unknown): string[] {
-	const list = splitList(value);
+	const list = splitList(value, URL_SEPARATOR);
 	for (const url of list) assertMediaUrl(node, url, 'Media URLs');
 	return list;
 }

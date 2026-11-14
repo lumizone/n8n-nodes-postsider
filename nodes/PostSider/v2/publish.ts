@@ -1,5 +1,5 @@
-import type { IDataObject, IExecuteFunctions, INode } from 'n8n-workflow';
-import { NodeOperationError, sleep } from 'n8n-workflow';
+import type { IDataObject, IExecuteFunctions, INode, JsonObject } from 'n8n-workflow';
+import { NodeApiError, NodeOperationError, sleep } from 'n8n-workflow';
 
 import {
 	buildCreatePostBody,
@@ -11,6 +11,7 @@ import {
 } from '../shared/payloads';
 import { httpStatusOf, retryAfterMsOf } from '../shared/errors';
 import { executionScope, runIndexOf } from '../shared/idempotency';
+import { binaryFieldLabel, dateZone, isCurrent } from '../shared/versions';
 import { nodeToken, validateIdempotencyKey, type OperationRequest } from '../shared/operations';
 import { postSiderApiRequest } from '../shared/transport';
 import { parseIdList, parseMediaJson, parseUrlList } from './inputs';
@@ -49,6 +50,12 @@ const DEFAULT_WAIT_INTERVAL_MS = 5000;
 const THREAD_DELAY_MAX_MINUTES = 1440;
 const CACHE_MAX_ENTRIES = 500;
 const CONFLICT_TEXT = 'already used with a different request';
+const PROCESSING_TEXT = 'is already processing';
+const PROCESSING_RETRIES = 3;
+const PROCESSING_WAIT_MS = 5000;
+const KEY_REUSED_MESSAGE = 'The Idempotency Key was already used for a different post';
+const KEY_REUSED_DESCRIPTION =
+	"PostSider remembers every Idempotency Key permanently and answers a reused key with the first request. Set a unique 'Idempotency Key' in Options for this post.";
 const ALREADY_SUBMITTED_MESSAGE =
 	'This item was already submitted in an earlier attempt of this run. Check the post in PostSider before retrying.';
 
@@ -64,6 +71,27 @@ interface RetryCacheEntry {
  * same uploaded media. Module-level and bounded; only derived keys use it.
  */
 const retryCache = new Map<string, RetryCacheEntry>();
+
+function isConflict(attempt: { value: unknown } | { error: unknown }, text: string): boolean {
+	if (!('error' in attempt) || httpStatusOf(attempt.error) !== 409) return false;
+	const failure = attempt.error as { message?: string; description?: unknown } | undefined;
+	return `${failure?.message ?? ''} ${String(failure?.description ?? '')}`.includes(text);
+}
+
+/** The 409 for a reused key, with a description that tells the user what to change. */
+function keyReusedError(node: INode, error: unknown, itemIndex: number): NodeApiError {
+	if (error instanceof NodeApiError) {
+		error.message = KEY_REUSED_MESSAGE;
+		error.description = KEY_REUSED_DESCRIPTION;
+		return error;
+	}
+	return new NodeApiError(node, error as JsonObject, {
+		httpCode: '409',
+		message: KEY_REUSED_MESSAGE,
+		description: KEY_REUSED_DESCRIPTION,
+		itemIndex,
+	});
+}
 
 export function resetPublishCache(): void {
 	retryCache.clear();
@@ -107,11 +135,13 @@ export function resolvePublishDate(
 	date: string | undefined,
 	now: Date,
 	slot?: unknown,
+	/** Time zone for a date without one: the workflow time zone from node version 2.1, UTC before. */
+	zone?: string,
 ): string {
 	if (when === 'schedule') {
 		const value = String(date ?? '').trim();
 		if (!value) throw new NodeOperationError(node, "'Date' is required to schedule a post");
-		return normalizeScheduledDate(node, value, 'Date');
+		return normalizeScheduledDate(node, value, 'Date', zone);
 	}
 	if (when === 'nextSlot') {
 		const slotDate = (slot as { date?: unknown } | undefined)?.date;
@@ -285,6 +315,8 @@ export async function waitForResult(
 				const detail = await api<{ group?: string; posts?: Array<Record<string, unknown>> }>(
 					'GET',
 					`/posts/${encodeURIComponent(String(row.postId))}`,
+					// This loop waits out a 429 itself, against the wait timeout.
+					{ rateLimitRetry: false },
 				);
 				const post = detail.posts?.find((p) => p.id === row.postId) ?? detail.posts?.[0];
 				if (!post) continue;
@@ -353,6 +385,8 @@ export async function executePublish(
 		postSiderApiRequest.call(ctx, method, endpoint, input) as never;
 	const get = (name: string, fallback?: unknown) => ctx.getNodeParameter(name, index, fallback);
 
+	const binaryLabel = binaryFieldLabel(isCurrent(ctx));
+	const zone = dateZone(ctx);
 	const channels = parseIdList(node, get('channels', []), 'Channel Names or IDs');
 	const text = String(get('text', ''));
 	const when = String(get('when', 'now')) as PublishWhen;
@@ -382,7 +416,7 @@ export async function executePublish(
 	let media: PostSiderMedia[] = [];
 	let mediaCount = 0;
 	if (mediaSource === 'binary') {
-		binaryNames = parseIdList(node, get('binaryProperties', 'data'), 'Input Binary Field');
+		binaryNames = parseIdList(node, get('binaryProperties', 'data'), binaryLabel);
 		mediaCount = binaryNames.length;
 	} else if (mediaSource === 'url') {
 		mediaUrls = parseUrlList(node, get('mediaUrls', ''));
@@ -444,7 +478,7 @@ export async function executePublish(
 		threadParts,
 	};
 	const scheduleDate =
-		when === 'schedule' ? resolvePublishDate(node, when, String(get('date', '')), now()) : undefined;
+		when === 'schedule' ? resolvePublishDate(node, when, String(get('date', '')), now(), undefined, zone) : undefined;
 	// Dry build with placeholder media so text, title and settings errors surface before any API call.
 	buildPublishRequest(
 		node,
@@ -470,7 +504,7 @@ export async function executePublish(
 		media = cached.media;
 		date = cached.date;
 	} else {
-		if (mediaSource === 'binary') media = await uploadBinaries(ctx, api, index, binaryNames);
+		if (mediaSource === 'binary') media = await uploadBinaries(ctx, api, index, binaryNames, binaryLabel);
 		else if (mediaSource === 'url') media = await uploadFromUrls(node, api, mediaUrls);
 
 		let slot: unknown;
@@ -484,14 +518,25 @@ export async function executePublish(
 	const request = buildPublishRequest(node, { ...base, media }, providers, date);
 
 	// Keep the original error: executeV2 wraps it (NodeApiError or NodeOperationError) for every operation.
-	const attempt = await api<unknown>(request.method, request.endpoint, request.input).then(
-		(value) => ({ value }),
-		(error: unknown) => ({ error }),
-	);
+	const send = () =>
+		api<unknown>(request.method, request.endpoint, request.input).then(
+			(value) => ({ value }),
+			(error: unknown) => ({ error }),
+		);
+	// A derived key that this process has used before means this run already sent the post once.
+	const sentBefore = derivedKey && cached !== undefined;
+	let attempt = await send();
+	// An earlier attempt may still be running on the server: wait for it and send the same body again,
+	// which PostSider answers with the first result once that attempt has finished.
+	for (let wait = 0; wait < PROCESSING_RETRIES && sentBefore && isConflict(attempt, PROCESSING_TEXT); wait++) {
+		await sleepFn(PROCESSING_WAIT_MS);
+		attempt = await send();
+	}
 	if ('error' in attempt) {
-		const failure = attempt.error as { message?: string; description?: unknown } | undefined;
-		const message = `${failure?.message ?? ''} ${String(failure?.description ?? '')}`;
-		if (derivedKey && httpStatusOf(attempt.error) === 409 && message.includes(CONFLICT_TEXT)) {
+		if (
+			sentBefore &&
+			(isConflict(attempt, CONFLICT_TEXT) || isConflict(attempt, PROCESSING_TEXT))
+		) {
 			return channels.map((channelId) => ({
 				channelId,
 				channelName: names[channelId] ?? null,
@@ -501,6 +546,7 @@ export async function executePublish(
 				message: ALREADY_SUBMITTED_MESSAGE,
 			}));
 		}
+		if (isConflict(attempt, CONFLICT_TEXT)) throw keyReusedError(node, attempt.error, index);
 		throw attempt.error;
 	}
 	const response = attempt.value;

@@ -10,7 +10,12 @@ const MISSING_ROUTE_PATTERN = /Cannot (?:GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)
 /** Integer HTTP status of an error: `statusCode` on plain errors, `httpCode` (string) on NodeApiError. */
 export function httpStatusOf(error: unknown): number | undefined {
 	const raw = error as { statusCode?: unknown; httpCode?: unknown } | undefined;
-	const status = Number(raw?.statusCode ?? raw?.httpCode);
+	const value = raw?.statusCode ?? raw?.httpCode;
+	// Number(null) and Number('') are 0, which is not a status.
+	if (value === null || value === undefined || (typeof value === 'string' && value.trim() === '')) {
+		return undefined;
+	}
+	const status = Number(value);
 	return Number.isInteger(status) ? status : undefined;
 }
 
@@ -67,28 +72,58 @@ export function missingRouteError(node: INode, error: unknown): NodeApiError | u
 	});
 }
 
-/** The text of a `{ msg }` object, or of a JSON string that holds one. */
-function msgOf(value: unknown): string | undefined {
-	let object = value;
-	if (typeof object === 'string') {
-		const text = object.trim();
+/** The object a body holds: an object as it is, or the parsed JSON of a string that holds one. */
+function bodyObject(value: unknown): Loose {
+	if (typeof value === 'string') {
+		const text = value.trim();
 		if (!text.startsWith('{')) return undefined;
 		try {
-			object = JSON.parse(text);
+			return asLoose(JSON.parse(text));
 		} catch {
 			return undefined;
 		}
 	}
-	const msg = asLoose(object)?.msg;
-	return typeof msg === 'string' && msg.trim() !== '' ? msg.trim() : undefined;
+	return asLoose(value);
+}
+
+function nonEmpty(value: unknown): string | undefined {
+	return typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined;
+}
+
+export const PAUSED_MESSAGE = 'Publishing is paused in PostSider';
+export const PAUSED_DESCRIPTION = 'Resume publishing in the PostSider dashboard.';
+
+export interface ServerDetail {
+	/** The reason PostSider gave. */
+	description: string;
+	/** Replaces n8n's status message when PostSider's own wording is clearer. */
+	message?: string;
+}
+
+/** What one error body says, in the three shapes the PostSider API uses. */
+function detailOfBody(value: unknown): ServerDetail | undefined {
+	const body = bodyObject(value);
+	if (!body) return undefined;
+	// 423 `{ error: 'publishing_paused', reason }`
+	if (body.error === 'publishing_paused') {
+		return { message: PAUSED_MESSAGE, description: nonEmpty(body.reason) ?? PAUSED_DESCRIPTION };
+	}
+	// Most errors: `{ msg }`
+	const msg = nonEmpty(body.msg);
+	if (msg) return { description: msg };
+	// Post validation errors: `{ statusCode, provider, name, message }`
+	const name = nonEmpty(body.name);
+	const message = nonEmpty(body.message);
+	if (name && message) return { description: `${name}: ${message}` };
+	return undefined;
 }
 
 /**
- * The message PostSider put in the body of an error answer. Most errors of the PostSider API are
- * `{ "msg": "..." }`. Depending on how n8n or the HTTP library wrapped the failure, the body is in one of
- * several places; Nest's own `{ message }` bodies are not read here because n8n already uses them.
+ * The reason PostSider put in the body of an error answer. Depending on how n8n or the HTTP library
+ * wrapped the failure, the body is in one of several places; Nest's own `{ message }` bodies are not read
+ * here because n8n already uses them.
  */
-export function serverMessageOf(error: unknown): string | undefined {
+export function serverDetailOf(error: unknown): ServerDetail | undefined {
 	const raw = asLoose(error);
 	if (!raw) return undefined;
 	const cause = asLoose(raw.cause);
@@ -101,16 +136,21 @@ export function serverMessageOf(error: unknown): string | undefined {
 		raw.description,
 	];
 	for (const candidate of candidates) {
-		const msg = msgOf(candidate);
-		if (msg) return msg;
+		const detail = detailOfBody(candidate);
+		if (detail) return detail;
 	}
 	return undefined;
+}
+
+/** The text of the server detail (`msg`, `name: message` or the pause reason). */
+export function serverMessageOf(error: unknown): string | undefined {
+	return serverDetailOf(error)?.description;
 }
 
 /**
  * Puts the server message of an HTTP error into the error description, and keeps n8n's status message
  * (for example 'Bad request - please check your parameters') as the message. Returns undefined when the
- * error has no HTTP status or no `msg` body, so the caller keeps the original error.
+ * error has no HTTP status or no readable body, so the caller keeps the original error.
  *
  * A NodeApiError is changed in place: n8n returns the original when one is wrapped again, and the original
  * keeps the response headers that Wait for Result reads (Retry-After). Any other error becomes a
@@ -119,15 +159,17 @@ export function serverMessageOf(error: unknown): string | undefined {
 export function withServerMessage(node: INode, error: unknown): NodeApiError | undefined {
 	const status = httpStatusOf(error);
 	if (status === undefined) return undefined;
-	const msg = serverMessageOf(error);
-	if (!msg) return undefined;
+	const detail = serverDetailOf(error);
+	if (!detail) return undefined;
 	if (error instanceof NodeApiError) {
-		error.description = msg;
+		error.description = detail.description;
+		if (detail.message) error.message = detail.message;
 		return error;
 	}
 	const wrapped = new NodeApiError(node, error as JsonObject, { httpCode: String(status) });
-	// A body with a `message` as well would otherwise take the place of the server's `msg`.
-	wrapped.description = msg;
+	// A body with a `message` as well would otherwise take the place of the server's detail.
+	wrapped.description = detail.description;
+	if (detail.message) wrapped.message = detail.message;
 	return wrapped;
 }
 
@@ -154,7 +196,7 @@ export function toNodeError(
 
 /**
  * The JSON of an item that failed while 'Continue On Fail' is on: the error message and, when PostSider
- * gave a reason (for example 'Only failed posts can be retried'), that reason as `description`.
+ * gave a reason (for example 'Publishing is paused'), that reason as `description`.
  */
 export function continueOnFailJson(error: unknown): { error: string; description?: string } {
 	const message = String((error as Error | undefined)?.message ?? error);

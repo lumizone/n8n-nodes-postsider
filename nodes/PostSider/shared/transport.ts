@@ -7,9 +7,9 @@ import type {
 	IPollFunctions,
 	INode,
 } from 'n8n-workflow';
-import { NodeOperationError } from 'n8n-workflow';
+import { NodeOperationError, sleep } from 'n8n-workflow';
 
-import { missingRouteError, withServerMessage } from './errors';
+import { httpStatusOf, missingRouteError, retryAfterMsOf, withServerMessage } from './errors';
 
 type PostSiderFunctions = IExecuteFunctions | ILoadOptionsFunctions | IPollFunctions;
 
@@ -21,7 +21,17 @@ export interface RequestInput {
 	timeout?: number;
 	qs?: IDataObject;
 	headers?: IDataObject;
+	/** Set to false when the caller waits out 429 answers itself (Wait for Result). */
+	rateLimitRetry?: boolean;
 }
+
+/** Retries after a 429 answer, the wait when PostSider sends no Retry-After, and the longest single wait. */
+export const RATE_LIMIT_MAX_RETRIES = 3;
+export const RATE_LIMIT_DEFAULT_WAIT_MS = 5000;
+export const RATE_LIMIT_MAX_WAIT_MS = 60000;
+
+/** The wait function of the transport; replaced in tests so no real time passes. */
+export const transportClock: { sleep: (ms: number) => Promise<void> } = { sleep };
 
 /** Default request timeout. */
 export const DEFAULT_TIMEOUT_MS = 30000;
@@ -75,6 +85,16 @@ export function buildRequestOptions(
 	};
 }
 
+/**
+ * A 429 is repeated only when sending the request again cannot do any harm: a read (GET), or the creation
+ * of a post (`POST /posts`) that carries an Idempotency-Key, which PostSider answers with the first result.
+ */
+function repeatsAfterRateLimit(method: IHttpRequestMethods, endpoint: string, input: RequestInput): boolean {
+	if (input.rateLimitRetry === false) return false;
+	if (method === 'GET') return true;
+	return method === 'POST' && endpoint === '/posts' && Boolean(input.headers?.['Idempotency-Key']);
+}
+
 export async function postSiderApiRequest<T = IDataObject>(
 	this: PostSiderFunctions,
 	method: IHttpRequestMethods,
@@ -84,13 +104,24 @@ export async function postSiderApiRequest<T = IDataObject>(
 	const credentials = await this.getCredentials('postSiderApi');
 	const baseUrl = normalizeApiBaseUrl(this.getNode(), String(credentials.baseUrl));
 	const options = buildRequestOptions(method, `${baseUrl}${endpoint}`, input);
-	try {
-		return (await this.helpers.httpRequestWithAuthentication.call(
-			this,
-			'postSiderApi',
-			options,
-		)) as T;
-	} catch (error) {
-		throw missingRouteError(this.getNode(), error) ?? withServerMessage(this.getNode(), error) ?? error;
+	for (let attempt = 0; ; attempt++) {
+		try {
+			return (await this.helpers.httpRequestWithAuthentication.call(
+				this,
+				'postSiderApi',
+				options,
+			)) as T;
+		} catch (error) {
+			if (
+				httpStatusOf(error) === 429 &&
+				attempt < RATE_LIMIT_MAX_RETRIES &&
+				repeatsAfterRateLimit(method, endpoint, input)
+			) {
+				const wait = retryAfterMsOf(error) ?? RATE_LIMIT_DEFAULT_WAIT_MS;
+				await transportClock.sleep(Math.min(RATE_LIMIT_MAX_WAIT_MS, wait));
+				continue;
+			}
+			throw missingRouteError(this.getNode(), error) ?? withServerMessage(this.getNode(), error) ?? error;
+		}
 	}
 }

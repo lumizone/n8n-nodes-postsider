@@ -12,6 +12,7 @@ import {
 	type PostSiderTag,
 	type PostType,
 } from './payloads';
+import { SLOW_REQUEST_TIMEOUT_MS } from './transport';
 
 export interface OperationRequest {
 	method: IHttpRequestMethods;
@@ -156,11 +157,6 @@ const DEFAULT_APPROVAL_LIMIT = 25;
 const MAX_APPROVAL_LIMIT = 100;
 export const MAX_APPROVAL_PAGES = 10;
 
-/** Display name of the group field, as shown on screen in the node version being run. */
-function groupField(parameters: IDataObject): string {
-	return String(parameters.groupField ?? 'Group ID');
-}
-
 function groupName(node: INode, parameters: IDataObject): string {
 	const name = requiredString(node, parameters, 'groupName', 'Group Name');
 	if (name.length > MAX_NAME_LENGTH) {
@@ -169,10 +165,21 @@ function groupName(node: INode, parameters: IDataObject): string {
 	return name;
 }
 
+const SAFE_NODE_NAME = /^[A-Za-z0-9._-]{1,40}$/;
+
+/**
+ * The part of a derived Idempotency-Key that stands for the node name. A short name made of letters,
+ * numbers, dot, underscore and hyphen is used as it is. Any other name becomes a readable prefix plus
+ * `:` plus a hash of the whole name. A name never contains `:` itself, so a hashed token cannot equal
+ * the token of another name, and names that only differ in the characters that were replaced (or after the
+ * 40th character) get different tokens.
+ */
 export function nodeToken(nodeName: unknown): string {
-	return String(nodeName ?? '')
-		.replace(/[^A-Za-z0-9._-]/g, '_')
-		.slice(0, 40);
+	const name = String(nodeName ?? '');
+	if (SAFE_NODE_NAME.test(name)) return name;
+	if (name === '') return '';
+	const readable = name.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 24);
+	return `${readable}:${createHash('sha256').update(name).digest('hex').slice(0, 12)}`;
 }
 
 /**
@@ -392,14 +399,14 @@ export function buildOperationRequest(
 	if (resource === 'group' && operation === 'update') {
 		return {
 			method: 'PUT',
-			endpoint: `/customers/${encodedId(node, parameters, 'targetGroupId', groupField(parameters))}`,
+			endpoint: `/customers/${encodedId(node, parameters, 'targetGroupId', 'Group ID')}`,
 			input: { body: { name: groupName(node, parameters) } },
 		};
 	}
 	if (resource === 'group' && operation === 'archive') {
 		return {
 			method: 'POST',
-			endpoint: `/customers/${encodedId(node, parameters, 'targetGroupId', groupField(parameters))}/archive`,
+			endpoint: `/customers/${encodedId(node, parameters, 'targetGroupId', 'Group ID')}/archive`,
 			input: {},
 		};
 	}
@@ -470,7 +477,7 @@ export function buildOperationRequest(
 		return {
 			method: 'POST',
 			endpoint: '/upload-from-url',
-			input: { body: { url: url.toString() } },
+			input: { body: { url: url.toString() }, timeout: SLOW_REQUEST_TIMEOUT_MS },
 		};
 	}
 	throw new NodeOperationError(node, `Unsupported PostSider operation: ${resource}.${operation}`);
@@ -510,5 +517,44 @@ export function simplifyPostResponse(value: Record<string, unknown>): Record<str
 	if (integration.providerIdentifier !== undefined) {
 		simplified.provider = integration.providerIdentifier;
 	}
+	return simplified;
+}
+
+/** The ten fields of a simplified post in node version 2.1 and trigger version 1.1. */
+export const SIMPLE_POST_FIELDS = [
+	'id',
+	'content',
+	'publishDate',
+	'state',
+	'releaseURL',
+	'error',
+	'errorCode',
+	'integrationId',
+	'integrationName',
+	'provider',
+] as const;
+
+/**
+ * Flat simplified post of node version 2.1 and trigger 1.1: at most the ten fields of
+ * `SIMPLE_POST_FIELDS`, with the channel reduced to its ID, name and provider. `channel` is used when the
+ * post row has no `integration` of its own (Post > Get answers the channel next to the posts).
+ */
+export function simplifyPostFlat(
+	value: Record<string, unknown>,
+	channel?: unknown,
+): Record<string, unknown> {
+	const own = value.integration;
+	const source = own && typeof own === 'object' && !Array.isArray(own) ? own : channel;
+	const integration =
+		source && typeof source === 'object' && !Array.isArray(source)
+			? (source as Record<string, unknown>)
+			: {};
+	const simplified: Record<string, unknown> = {};
+	for (const key of ['id', 'content', 'publishDate', 'state', 'releaseURL', 'error', 'errorCode']) {
+		if (Object.prototype.hasOwnProperty.call(value, key)) simplified[key] = value[key];
+	}
+	if (integration.id !== undefined) simplified.integrationId = integration.id;
+	if (integration.name !== undefined) simplified.integrationName = integration.name;
+	if (integration.providerIdentifier !== undefined) simplified.provider = integration.providerIdentifier;
 	return simplified;
 }

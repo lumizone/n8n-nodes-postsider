@@ -3,7 +3,7 @@ import { NodeOperationError } from 'n8n-workflow';
 
 import { assertMediaUrl } from '../shared/mediaUrl';
 import type { PostSiderMedia } from '../shared/payloads';
-import type { RequestInput } from '../shared/transport';
+import { SLOW_REQUEST_TIMEOUT_MS, type RequestInput } from '../shared/transport';
 
 export type ApiCall = <T>(
 	method: IHttpRequestMethods,
@@ -64,10 +64,29 @@ export async function uploadFromUrls(
 	for (const url of urls) {
 		const response = await api<unknown>('POST', '/upload-from-url', {
 			body: { url } as IDataObject,
+			timeout: SLOW_REQUEST_TIMEOUT_MS,
 		});
 		media.push(toMedia(node, response));
 	}
 	return media;
+}
+
+/** Bytes of an in-memory base64 string, without reading it into a Buffer. */
+function base64Bytes(data: string): number {
+	const padding = data.endsWith('==') ? 2 : data.endsWith('=') ? 1 : 0;
+	return Math.max(0, Math.floor((data.length * 3) / 4) - padding);
+}
+
+/**
+ * Size of a binary property without loading it: the stored size when n8n keeps the file on disk or in
+ * S3 (the property has an `id`), otherwise the size of the base64 text held in memory.
+ */
+async function binarySize(
+	ctx: IExecuteFunctions,
+	meta: { id?: string; data: string },
+): Promise<number> {
+	if (meta.id) return (await ctx.helpers.getBinaryMetadata(meta.id)).fileSize;
+	return base64Bytes(meta.data);
 }
 
 export async function uploadBinaries(
@@ -75,9 +94,11 @@ export async function uploadBinaries(
 	api: ApiCall,
 	itemIndex: number,
 	propertyNames: string[],
+	/** Display name of the field the names came from, for the error text. */
+	fieldName = 'Input Binary Field',
 ): Promise<PostSiderMedia[]> {
 	if (propertyNames.length === 0) {
-		throw new NodeOperationError(ctx.getNode(), "'Input Binary Field' must list at least one value", {
+		throw new NodeOperationError(ctx.getNode(), `'${fieldName}' must list at least one value`, {
 			itemIndex,
 		});
 	}
@@ -86,16 +107,16 @@ export async function uploadBinaries(
 		name,
 		meta: ctx.helpers.assertBinaryData(itemIndex, name),
 	}));
-	// Read and check every file before the first upload, so an oversized file sends nothing.
-	const files: Array<{ buffer: Buffer; filename: string; mimeType: string }> = [];
+	// Check every size from the metadata first, so an oversized file sends nothing and no file is read yet.
 	for (const { name, meta } of metas) {
-		const buffer = await ctx.helpers.getBinaryDataBuffer(itemIndex, name);
 		const filename = meta.fileName || `${name}`;
-		assertUploadSize(ctx.getNode(), filename, meta.mimeType, buffer.length, itemIndex);
-		files.push({ buffer, filename, mimeType: meta.mimeType });
+		assertUploadSize(ctx.getNode(), filename, meta.mimeType, await binarySize(ctx, meta), itemIndex);
 	}
+	// Read each file right before its upload, so only one file is in memory at a time.
 	const media: PostSiderMedia[] = [];
-	for (const { buffer, filename, mimeType } of files) {
+	for (const { name, meta } of metas) {
+		const filename = meta.fileName || `${name}`;
+		const buffer = await ctx.helpers.getBinaryDataBuffer(itemIndex, name);
 		let response: unknown;
 		if (buffer.length <= BASE64_MAX_BYTES) {
 			response = await api<unknown>('POST', '/upload-base64', {
@@ -103,7 +124,7 @@ export async function uploadBinaries(
 			});
 		} else {
 			const formData = new FormData();
-			formData.append('file', new Blob([buffer], { type: mimeType }), filename);
+			formData.append('file', new Blob([buffer], { type: meta.mimeType }), filename);
 			response = await api<unknown>('POST', '/upload', { formData, timeout: UPLOAD_TIMEOUT_MS });
 		}
 		media.push(toMedia(ctx.getNode(), response));

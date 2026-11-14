@@ -16,6 +16,23 @@ export function isPublicHttpsUrl(value: string): boolean {
  */
 export function assertMediaUrl(node: INode, value: string, fieldName: string): void {
 	if (!isPublicHttpsUrl(value)) {
-		throw new NodeOperationError(node, `'${fieldName}' must be public HTTPS URLs`);
+		throw new NodeOperationError(
+			node,
+			`'${fieldName}' must be public HTTPS URLs. This one is not: ${describeUrl(value)}`,
+		);
 	}
+}
+
+/** The URL for an error message, without a user name or password and cut at 200 characters. */
+function describeUrl(value: string): string {
+	let text = value;
+	try {
+		const url = new URL(value);
+		url.username = '';
+		url.password = '';
+		text = url.toString();
+	} catch {
+		text = value.replace(/\/\/[^/@\s]*@/, '//');
+	}
+	return text.length > 200 ? `${text.slice(0, 200)}...` : text;
 }

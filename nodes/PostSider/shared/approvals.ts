@@ -25,15 +25,10 @@ export function readControlParameters(
 	if (resource === 'channel') return { groupId: get('groupId', '') } as IDataObject;
 	if (resource === 'group') {
 		if (operation === 'create') return { groupName: get('groupName') } as IDataObject;
-		const groupField = 'Group ID';
 		if (operation === 'update') {
-			return {
-				targetGroupId: get('targetGroupId'),
-				groupName: get('groupName'),
-				groupField,
-			} as IDataObject;
+			return { targetGroupId: get('targetGroupId'), groupName: get('groupName') } as IDataObject;
 		}
-		if (operation === 'archive') return { targetGroupId: get('targetGroupId'), groupField } as IDataObject;
+		if (operation === 'archive') return { targetGroupId: get('targetGroupId') } as IDataObject;
 		return {};
 	}
 	if (resource === 'policy') {
