@@ -106,8 +106,10 @@ test('the README and CHANGELOG match the production API', () => {
 	assert.match(readme, /request size limit/);
 	assert.match(readme, /Post ID/);
 	assert.doesNotMatch(readme, /Post Group ID/);
-	assert.match(readme, /Version 1 nodes still list Approval Get Many, Approve and Reject, the Policy resource, and Group Create, Rename and Archive/);
-	assert.match(section, /### Removed/);
-	assert.match(section, /Post Group ID \(`postGroup`\) is gone/);
+	assert.match(readme, /PostSider Cloud does not offer Approval Get Many, Approve and Reject, the Policy resource or Group Create, Rename and Archive/);
+	assert.match(section, /### Node versions/);
+	assert.match(section, /Post > Retry Failed with its Group ID \(`\/posts\/group\/:id\/retry-failed`\)/);
+	assert.doesNotMatch(readme, /errorCategory|errorRetryable/);
+	assert.match(section, /never had `errorCategory` or `errorRetryable`/);
 	assert.doesNotMatch(section, /supported lowercase|approvalFilters|approvalAdditionalFields/);
 });
