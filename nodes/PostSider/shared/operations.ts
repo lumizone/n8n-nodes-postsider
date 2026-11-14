@@ -3,7 +3,6 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { IDataObject, IHttpRequestMethods, INode } from 'n8n-workflow';
 import { NodeOperationError } from 'n8n-workflow';
 
-import { hasMediaExtension, MEDIA_EXTENSIONS } from './mediaUrl';
 import {
 	buildCreatePostBody,
 	normalizeScheduledDate,
@@ -467,13 +466,6 @@ export function buildOperationRequest(
 		}
 		if (url.protocol !== 'https:' || url.username || url.password) {
 			throw new NodeOperationError(node, "'URL' must be a valid public HTTPS URL");
-		}
-		// Same rule as the backend, so a wrong extension is reported here and not as a plain 400.
-		if (!hasMediaExtension(url.toString())) {
-			throw new NodeOperationError(
-				node,
-				`'URL' must end in a supported file extension: ${MEDIA_EXTENSIONS.join(', ')} (lowercase)`,
-			);
 		}
 		return {
 			method: 'POST',

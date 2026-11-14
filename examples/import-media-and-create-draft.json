@@ -3,7 +3,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Draft with an image from a URL\nSet **Channel Names or IDs** in the PostSider node and run the workflow. Media is set to **Public URLs** and When to **Draft**, so the image is imported into the PostSider media library and attached to a draft that is not published.\n\nThe URL must be public, use HTTPS and end in a lowercase `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.mp4`, `.webm` or `.mov`. Replace the example URL with your own file.\n\nThe API key needs the scopes `posts:write`, `channels:read` and `media:write`.",
+        "content": "## Draft with an image from a URL\nSet **Channel Names or IDs** in the PostSider node and run the workflow. Media is set to **Public URLs** and When to **Draft**, so the image is imported into the PostSider media library and attached to a draft that is not published.\n\nThe URL must be public and use HTTPS. It does not need a file extension. Images can be up to 10 MB and videos up to 500 MB. Replace the example URL with your own file.",
         "height": 280,
         "width": 440
       },

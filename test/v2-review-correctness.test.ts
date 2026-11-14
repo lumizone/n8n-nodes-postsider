@@ -426,72 +426,75 @@ test('B16. version 1 Requested Since says it is read as UTC without a time zone'
 
 // ---- B13: media URL pre-check ----
 
-test('B13. the media URL rule mirrors the backend: lowercase extension before the query string', () => {
+test('B13. a media URL needs HTTPS and no credentials, and no file extension', () => {
 	const accepted = [
 		'https://cdn.example/a.png',
-		'https://cdn.example/a.jpg',
-		'https://cdn.example/a.jpeg',
-		'https://cdn.example/a.gif',
-		'https://cdn.example/a.webp',
-		'https://cdn.example/a.mp4',
-		'https://cdn.example/a.webm',
-		'https://cdn.example/a.mov',
-		// the backend strips the query string before it checks the extension
-		'https://cdn.example/a.png?w=800',
-		'https://cdn.example/a.mp4?token=a.b',
+		'https://cdn.example/a.JPG',
+		'https://cdn.example/a.Png?w=800',
+		'https://cdn.example/photo',
+		'https://cdn.example/images/12345',
+		'https://cdn.example/a.png.txt',
+		'https://cdn.example/a.pdf?x=a.png',
+		'https://cdn.example/a.png#frag',
+		'https://cdn.example/',
+		'https://cdn.example/render?id=7&w=800',
 	];
 	for (const url of accepted) assert.deepEqual(parseUrlList(testNode, url), [url], url);
-	const rejected = [
-		'https://cdn.example/a.JPG',
-		'https://cdn.example/a.Png',
-		'https://cdn.example/photo',
-		'https://cdn.example/a.png.txt',
-		'https://cdn.example/a.png#frag',
-		'https://cdn.example/a.pdf?x=a.png',
-		'https://cdn.example/',
-	];
+	const rejected = ['http://cdn.example/a.png', 'ftp://cdn.example/a.png', 'https://user:pw@cdn.example/a.png', 'not a url'];
 	for (const url of rejected) {
-		assert.throws(() => parseUrlList(testNode, url), /'Media URLs' must end in a supported file extension/, url);
+		assert.throws(() => parseUrlList(testNode, url), /'Media URLs' must be public HTTPS URLs/, url);
 	}
 });
 
-test('B13. the error names the field and lists the allowed extensions', () => {
-	assert.throws(
-		() => parseUrlList(testNode, 'https://cdn.example/a.JPG'),
-		/'Media URLs'.*\.png, \.jpg, \.jpeg, \.gif, \.webp, \.mp4, \.webm, \.mov/,
-	);
+test('B13. the old extension rule is gone from the code', async () => {
+	const mediaUrl = await import('../nodes/PostSider/shared/mediaUrl');
+	assert.deepEqual(Object.keys(mediaUrl).sort(), ['assertMediaUrl', 'isPublicHttpsUrl']);
 });
 
-test('B13. Publish, Update and Media Upload reject a bad extension before any request', async () => {
+test('B13. Publish, Update and Media Upload send URLs without an extension and reject only non-HTTPS URLs', async () => {
 	resetPublishCache();
 	const publish = makeFakeContext(
-		{ ...publishParams, mediaSource: 'url', mediaUrls: 'https://cdn.example/a.JPG' },
+		{ ...publishParams, mediaSource: 'url', mediaUrls: 'http://cdn.example/a.png' },
 		[integrations],
 	);
 	await assert.rejects(() => executeV2.call(publish.context), /Media URLs/);
 	assert.equal(publish.requests.length, 1, 'only the channel list was read');
 	const update = makeFakeContext(
-		{ resource: 'post', operation: 'update', postId: 'p', updateFields: { text: 'x' }, updateMediaSource: 'url', updateMediaUrls: 'https://cdn.example/a' },
+		{ resource: 'post', operation: 'update', postId: 'p', updateFields: { text: 'x' }, updateMediaSource: 'url', updateMediaUrls: 'ftp://cdn.example/a' },
 		[],
 	);
-	await assert.rejects(() => executeV2.call(update.context), /supported file extension/);
+	await assert.rejects(() => executeV2.call(update.context), /Media URLs/);
 	assert.equal(update.requests.length, 0);
 	const upload = makeFakeContext(
-		{ resource: 'media', operation: 'upload', uploadSource: 'url', uploadUrls: 'https://cdn.example/a.pdf' },
-		[],
+		{ resource: 'media', operation: 'upload', uploadSource: 'url', uploadUrls: 'https://cdn.example/photo\nhttps://cdn.example/b.JPG?w=800' },
+		[{ id: 'm1', path: 'p1' }, { id: 'm2', path: 'p2' }],
 	);
-	await assert.rejects(() => executeV2.call(upload.context), /supported file extension/);
-	assert.equal(upload.requests.length, 0);
+	const out = await executeV2.call(upload.context);
+	assert.equal(upload.requests.length, 2);
+	assert.deepEqual(upload.requests.map((request) => request.body), [
+		{ url: 'https://cdn.example/photo' },
+		{ url: 'https://cdn.example/b.JPG?w=800' },
+	]);
+	assert.equal(out[0].length, 2);
 });
 
-test('B13. uploadFromUrls checks the extension itself', async () => {
-	await assert.rejects(() => uploadFromUrls(testNode, (async () => ({})) as never, ['https://cdn.example/a.JPG']), /Media URLs/);
+test('B13. uploadFromUrls checks HTTPS itself and accepts a URL without an extension', async () => {
+	await assert.rejects(() => uploadFromUrls(testNode, (async () => ({})) as never, ['http://cdn.example/a.jpg']), /Media URLs/);
+	const calls: unknown[] = [];
+	const api = (async (_m: string, _e: string, input: unknown) => {
+		calls.push(input);
+		return { id: 'm1', path: 'p' };
+	}) as never;
+	await uploadFromUrls(testNode, api, ['https://cdn.example/a.JPG', 'https://cdn.example/photo?w=800']);
+	assert.equal(calls.length, 2);
 });
 
-test('B13. version 1 Import From URL checks the extension too', () => {
+test('B13. version 1 Import From URL accepts a URL without an extension and still needs HTTPS', () => {
 	const build = (url: string) => buildOperationRequest(testNode, 'media', 'importFromUrl', { url }, 'ex1', 0);
 	assert.deepEqual(build('https://cdn.example/a.png?w=800').input.body, { url: 'https://cdn.example/a.png?w=800' });
-	assert.throws(() => build('https://cdn.example/a.JPG'), /'URL' must end in a supported file extension/);
-	assert.throws(() => build('https://cdn.example/photo'), /'URL' must end in a supported file extension/);
+	assert.deepEqual(build('https://cdn.example/a.JPG').input.body, { url: 'https://cdn.example/a.JPG' });
+	assert.deepEqual(build('https://cdn.example/photo').input.body, { url: 'https://cdn.example/photo' });
 	assert.throws(() => build('http://cdn.example/a.png'), /public HTTPS URL/);
+	assert.throws(() => build('https://u:p@cdn.example/a.png'), /public HTTPS URL/);
+	assert.throws(() => build('nope'), /public HTTPS URL/);
 });

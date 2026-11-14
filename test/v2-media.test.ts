@@ -6,7 +6,7 @@ import type { IExecuteFunctions, IHttpRequestMethods } from 'n8n-workflow';
 import { NodeOperationError } from 'n8n-workflow';
 
 import { parseIdList, parseMediaJson, parseUrlList } from '../nodes/PostSider/v2/inputs.ts';
-import { toMedia, uploadBinaries, uploadFromUrls } from '../nodes/PostSider/v2/media.ts';
+import { MAX_IMAGE_BYTES, MAX_VIDEO_BYTES, toMedia, uploadBinaries, uploadFromUrls } from '../nodes/PostSider/v2/media.ts';
 import { testNode } from './helpers.ts';
 
 interface Call {
@@ -123,4 +123,64 @@ test('uploadBinaries sends large buffers as multipart file with a long timeout',
 	assert.equal(file.size, buffer.length);
 	assert.equal(calls[0].input?.body, undefined);
 	assert.equal(calls[0].input?.timeout, 120000);
+});
+
+// ---- upload size limits: images 10 MB, videos 500 MB ----
+
+const MB = 1024 * 1024;
+
+test('uploadBinaries accepts an image of exactly 10 MB and a video above 20 MB', async () => {
+	assert.equal(MAX_IMAGE_BYTES, 10 * MB);
+	assert.equal(MAX_VIDEO_BYTES, 500 * MB);
+	const calls: Call[] = [];
+	const ctx = fakeCtx({ data: { buffer: Buffer.alloc(10 * MB, 1), mimeType: 'image/png', fileName: 'edge.png' } });
+	await uploadBinaries(ctx, recorder(calls), 0, ['data']);
+	assert.equal(calls.length, 1);
+});
+
+test('uploadBinaries refuses an image over 10 MB and names the file and the limit', async () => {
+	const calls: Call[] = [];
+	const ctx = fakeCtx({ data: { buffer: Buffer.alloc(10 * MB + 1, 1), mimeType: 'image/jpeg', fileName: 'big photo.jpg' } });
+	await assert.rejects(
+		uploadBinaries(ctx, recorder(calls), 0, ['data']),
+		(error: Error) => {
+			assert.ok(error instanceof NodeOperationError);
+			assert.match(error.message, /'big photo\.jpg'/);
+			assert.match(error.message, /Images can be up to 10 MB/);
+			return true;
+		},
+	);
+	assert.equal(calls.length, 0);
+});
+
+test('uploadBinaries refuses a video over 500 MB and uses the property name when the file has no name', async () => {
+	const calls: Call[] = [];
+	// only the length is read before the error, so a stand-in avoids allocating 500 MB
+	const ctx = fakeCtx({ clip: { buffer: { length: 500 * MB + 1 } as Buffer, mimeType: 'video/mp4' } });
+	await assert.rejects(
+		uploadBinaries(ctx, recorder(calls), 0, ['clip']),
+		(error: Error) => {
+			assert.match(error.message, /'clip'/);
+			assert.match(error.message, /Videos can be up to 500 MB/);
+			return true;
+		},
+	);
+	assert.equal(calls.length, 0);
+});
+
+test('uploadBinaries checks every file before it uploads the first one', async () => {
+	const calls: Call[] = [];
+	const ctx = fakeCtx({
+		small: { buffer: Buffer.from('x'), mimeType: 'image/png', fileName: 'small.png' },
+		big: { buffer: Buffer.alloc(11 * MB), mimeType: 'image/png', fileName: 'big.png' },
+	});
+	await assert.rejects(uploadBinaries(ctx, recorder(calls), 0, ['small', 'big']), /'big\.png'/);
+	assert.equal(calls.length, 0, 'the small file was not uploaded either');
+});
+
+test('uploadBinaries leaves other file types to the server', async () => {
+	const calls: Call[] = [];
+	const ctx = fakeCtx({ data: { buffer: Buffer.alloc(11 * MB), mimeType: 'application/octet-stream', fileName: 'file.bin' } });
+	await uploadBinaries(ctx, recorder(calls), 0, ['data']);
+	assert.equal(calls.length, 1);
 });

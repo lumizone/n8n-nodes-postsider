@@ -266,12 +266,12 @@ test('schedule example publishes into the next free slot and never publishes now
 	assert.equal('idempotencyKey' in (node.parameters.options as object), false);
 });
 
-test('draft example imports a public URL with a supported extension and saves a draft', () => {
+test('draft example imports a public HTTPS URL and saves a draft', () => {
 	const node = nodesOf(draftWorkflow).find((n) => n.type === POSTSIDER);
 	assert.ok(node);
 	assert.equal(node.parameters.when, 'draft');
 	assert.equal(node.parameters.mediaSource, 'url');
-	assert.match(String(node.parameters.mediaUrls), /^https:\/\/\S+\.(png|jpg|jpeg|gif|webp|mp4|webm|mov)$/);
+	assert.match(String(node.parameters.mediaUrls), /^https:\/\/\S+$/);
 });
 
 test('approval example saves a draft and requests approval for the post it returns', () => {

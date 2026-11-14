@@ -515,7 +515,7 @@ const fieldPropertiesBase: INodeProperties[] = [
 		default: '',
 		required: true,
 		placeholder: 'e.g. https://example.com/image.png',
-		description: 'Public HTTPS URL ending in a supported image or video file extension',
+		description: 'Public HTTPS URL of an image or video',
 		displayOptions: { show: { resource: ['media'], operation: ['importFromUrl'] } },
 	},
 ];
