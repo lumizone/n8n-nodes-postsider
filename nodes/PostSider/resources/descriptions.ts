@@ -38,7 +38,7 @@ const operationPropertiesBase: INodeProperties[] = [
 			{
 				name: 'Approve',
 				value: 'approve',
-				action: 'Approve an approval request',
+				action: 'Approve approval request',
 				description: 'Approve a pending approval. Needs an API key with the approvals:decide scope.',
 			},
 			{
@@ -56,13 +56,13 @@ const operationPropertiesBase: INodeProperties[] = [
 			{
 				name: 'Reject',
 				value: 'reject',
-				action: 'Reject an approval request',
+				action: 'Reject approval request',
 				description: 'Reject a pending approval. Needs an API key with the approvals:decide scope.',
 			},
 			{
 				name: 'Request',
 				value: 'request',
-				action: 'Request approval for a post',
+				action: 'Request approval for post',
 				description: 'Ask the approvers to review a post',
 			},
 		],
@@ -86,13 +86,13 @@ const operationPropertiesBase: INodeProperties[] = [
 			{
 				name: 'Archive',
 				value: 'archive',
-				action: 'Archive a group',
+				action: 'Archive group',
 				description: 'Archive a group (customer workspace). Nothing is deleted.',
 			},
 			{
 				name: 'Create',
 				value: 'create',
-				action: 'Create a group',
+				action: 'Create group',
 				description: 'Create a group (customer workspace)',
 			},
 			{
@@ -104,7 +104,7 @@ const operationPropertiesBase: INodeProperties[] = [
 			{
 				name: 'Rename',
 				value: 'update',
-				action: 'Rename a group',
+				action: 'Rename group',
 				description: 'Change the name of a group',
 			},
 		],
@@ -128,7 +128,7 @@ const operationPropertiesBase: INodeProperties[] = [
 			{
 				name: 'Check',
 				value: 'check',
-				action: 'Check a post against policies',
+				action: 'Check post against policies',
 				description: 'Dry run: report which rules a post would hit, without creating it',
 			},
 			{
@@ -146,13 +146,13 @@ const operationPropertiesBase: INodeProperties[] = [
 			{
 				name: 'Create',
 				value: 'create',
-				action: 'Create a post',
+				action: 'Create post',
 				description: 'Create a draft or schedule a post',
 			},
 			{
 				name: 'Get',
 				value: 'get',
-				action: 'Get a post',
+				action: 'Get post',
 				description: 'Retrieve a post and its channel versions',
 			},
 			{
@@ -432,7 +432,7 @@ const fieldPropertiesBase: INodeProperties[] = [
 						name: 'mediaJson',
 						type: 'json',
 						default: '[]',
-						description: 'Array of media objects returned by Import Media From URL, each with ID and path',
+						description: 'Array of media objects returned by Media > Import From URL, each with ID and path',
 					},
 					{
 						displayName: 'Settings JSON',

@@ -110,7 +110,7 @@ export function resolvePublishDate(
 ): string {
 	if (when === 'schedule') {
 		const value = String(date ?? '').trim();
-		if (!value) throw new NodeOperationError(node, 'Date is required to schedule a post');
+		if (!value) throw new NodeOperationError(node, "'Date' is required to schedule a post");
 		return normalizeScheduledDate(node, value, 'Date');
 	}
 	if (when === 'nextSlot') {
@@ -149,7 +149,7 @@ function settingsFor(
 	if (!keyed) {
 		throw new NodeOperationError(
 			node,
-			'Settings JSON must be either one settings object applied to every channel, or an object keyed only by channel ID whose values are settings objects. It mixes channel IDs with other keys.',
+			"'Settings JSON' must be either one settings object applied to every channel, or an object keyed only by channel ID whose values are settings objects. It mixes channel IDs with other keys.",
 		);
 	}
 	return (settingsJson[channelId] as Record<string, unknown> | undefined) ?? {};
@@ -191,7 +191,7 @@ export function buildPublishRequest(
 		if (!text.trim() && input.media.length === 0) {
 			throw new NodeOperationError(
 				node,
-				`Channel ${channelId} needs text or media. Set Text or add Media.`,
+				`Channel ${channelId} needs text or media. Set 'Text' or add 'Media'.`,
 			);
 		}
 		const settings = buildChannelSettings(
@@ -204,7 +204,7 @@ export function buildPublishRequest(
 		if (provider === 'youtube' && (titleLength < YOUTUBE_TITLE_MIN || titleLength > YOUTUBE_TITLE_MAX)) {
 			throw new NodeOperationError(
 				node,
-				'YouTube needs a title of 2 to 100 characters. Set Options > Platform Settings > Title.',
+				"YouTube needs a title of 2 to 100 characters. Set 'Options' > 'Platform Settings' > 'Title'.",
 			);
 		}
 		return {
@@ -353,7 +353,7 @@ export async function executePublish(
 		postSiderApiRequest.call(ctx, method, endpoint, input) as never;
 	const get = (name: string, fallback?: unknown) => ctx.getNodeParameter(name, index, fallback);
 
-	const channels = parseIdList(node, get('channels', []), 'Channels');
+	const channels = parseIdList(node, get('channels', []), 'Channel Names or IDs');
 	const text = String(get('text', ''));
 	const when = String(get('when', 'now')) as PublishWhen;
 	const options = get('options', {}) as IDataObject;
@@ -382,12 +382,12 @@ export async function executePublish(
 	let media: PostSiderMedia[] = [];
 	let mediaCount = 0;
 	if (mediaSource === 'binary') {
-		binaryNames = parseIdList(node, get('binaryProperties', 'data'), 'Binary property names');
+		binaryNames = parseIdList(node, get('binaryProperties', 'data'), 'Input Binary Field');
 		mediaCount = binaryNames.length;
 	} else if (mediaSource === 'url') {
 		mediaUrls = parseUrlList(node, get('mediaUrls', ''));
 		if (mediaUrls.length === 0) {
-			throw new NodeOperationError(node, 'Media URLs must list at least one URL', { itemIndex: index });
+			throw new NodeOperationError(node, "'Media URLs' must list at least one URL", { itemIndex: index });
 		}
 		mediaCount = mediaUrls.length;
 	} else if (mediaSource === 'uploaded') {

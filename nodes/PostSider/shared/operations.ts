@@ -43,7 +43,7 @@ function requiredString(
 	displayName: string,
 ): string {
 	const value = String(parameters[name] ?? '').trim();
-	if (!value) throw new NodeOperationError(node, `${displayName} is required`);
+	if (!value) throw new NodeOperationError(node, `'${displayName}' is required`);
 	return value;
 }
 
@@ -53,16 +53,16 @@ function parseArray<T>(node: INode, value: unknown, displayName: string): T[] {
 	try {
 		parsed = typeof value === 'string' ? JSON.parse(value) : value;
 	} catch {
-		throw new NodeOperationError(node, `${displayName} must contain valid JSON`);
+		throw new NodeOperationError(node, `'${displayName}' must contain valid JSON`);
 	}
-	if (!Array.isArray(parsed)) throw new NodeOperationError(node, `${displayName} must be a JSON array`);
+	if (!Array.isArray(parsed)) throw new NodeOperationError(node, `'${displayName}' must be a JSON array`);
 	return parsed as T[];
 }
 
 function validateMedia(node: INode, media: PostSiderMedia[]): PostSiderMedia[] {
 	for (const item of media) {
 		if (!item || typeof item !== 'object' || !String(item.id ?? '') || !String(item.path ?? '')) {
-			throw new NodeOperationError(node, 'Media JSON entries must include non-empty id and path fields');
+			throw new NodeOperationError(node, "'Media JSON' entries must include non-empty id and path fields");
 		}
 	}
 	return media;
@@ -72,7 +72,7 @@ export function validateIdempotencyKey(node: INode, value: string): string {
 	if (!/^[A-Za-z0-9._:-]{1,255}$/.test(value)) {
 		throw new NodeOperationError(
 			node,
-			'Idempotency Key must be 1 to 255 characters and use only letters, numbers, dot, underscore, colon, or hyphen',
+			"'Idempotency Key' must be 1 to 255 characters and use only letters, numbers, dot, underscore, colon, or hyphen",
 		);
 	}
 	return value;
@@ -87,10 +87,10 @@ function buildCreateRequest(
 ): OperationRequest {
 	const type = String(parameters.type ?? 'draft') as PostType;
 	if (type !== 'draft' && type !== 'schedule') {
-		throw new NodeOperationError(node, 'Post Type must be Draft or Schedule');
+		throw new NodeOperationError(node, "'Post Type' must be Draft or Schedule");
 	}
 	const publishDate = String(parameters.publishDate ?? '').trim();
-	if (type === 'schedule' && !publishDate) throw new NodeOperationError(node, 'Publish Date is required for scheduled posts');
+	if (type === 'schedule' && !publishDate) throw new NodeOperationError(node, "'Publish Date' is required for scheduled posts");
 	const current = now();
 	const date =
 		type === 'draft'
@@ -100,12 +100,12 @@ function buildCreateRequest(
 			: normalizeScheduledDate(node, publishDate, 'Publish Date');
 	const collection = (parameters.channelPosts ?? {}) as ChannelPostCollection;
 	const entries = collection.channelPost ?? [];
-	if (entries.length === 0) throw new NodeOperationError(node, 'At least one Channel Post is required');
+	if (entries.length === 0) throw new NodeOperationError(node, "At least one 'Channel Post' is required");
 	const channels: ChannelPostInput[] = entries.map((entry) => {
 		const channelId = String(entry.channelId ?? '').trim();
 		const content = String(entry.content ?? '');
-		if (!channelId) throw new NodeOperationError(node, 'Channel is required for every Channel Post');
-		if (!content.trim()) throw new NodeOperationError(node, 'Content is required for every Channel Post');
+		if (!channelId) throw new NodeOperationError(node, "'Channel' is required for every 'Channel Post'");
+		if (!content.trim()) throw new NodeOperationError(node, "'Content' is required for every 'Channel Post'");
 		return {
 			channelId,
 			content,
@@ -157,10 +157,15 @@ const DEFAULT_APPROVAL_LIMIT = 25;
 const MAX_APPROVAL_LIMIT = 100;
 export const MAX_APPROVAL_PAGES = 10;
 
+/** Display name of the group field, as shown on screen in the node version being run. */
+function groupField(parameters: IDataObject): string {
+	return String(parameters.groupField ?? 'Group ID');
+}
+
 function groupName(node: INode, parameters: IDataObject): string {
 	const name = requiredString(node, parameters, 'groupName', 'Group Name');
 	if (name.length > MAX_NAME_LENGTH) {
-		throw new NodeOperationError(node, `Group Name must be at most ${MAX_NAME_LENGTH} characters`);
+		throw new NodeOperationError(node, `'Group Name' must be at most ${MAX_NAME_LENGTH} characters`);
 	}
 	return name;
 }
@@ -215,7 +220,7 @@ export function buildDecisionRequest(
 	const id = encodedId(node, parameters, 'approvalId', 'Approval ID');
 	const note = String(parameters.note ?? '').trim();
 	if (note.length > MAX_NOTE_LENGTH) {
-		throw new NodeOperationError(node, `Note must be at most ${MAX_NOTE_LENGTH} characters`);
+		throw new NodeOperationError(node, `'Note' must be at most ${MAX_NOTE_LENGTH} characters`);
 	}
 	const position = parameters.stagePosition;
 	const requestedAt = parameters.requestedAt;
@@ -276,7 +281,7 @@ export function readDecisionBinding(
 function buildApprovalListRequest(node: INode, parameters: IDataObject): OperationRequest {
 	const status = String(parameters.status ?? '').trim().toUpperCase();
 	if (status && !APPROVAL_STATUSES.includes(status)) {
-		throw new NodeOperationError(node, 'Status must be Pending, Approved or Rejected');
+		throw new NodeOperationError(node, "'Status' must be Pending, Approved or Rejected");
 	}
 	const since = String(parameters.since ?? '').trim();
 	const returnAll = Boolean(parameters.returnAll);
@@ -286,7 +291,7 @@ function buildApprovalListRequest(node: INode, parameters: IDataObject): Operati
 	} else if (parameters.limit !== undefined && parameters.limit !== '') {
 		limit = Number(parameters.limit);
 		if (!Number.isInteger(limit) || limit < 1 || limit > MAX_APPROVAL_LIMIT) {
-			throw new NodeOperationError(node, `Limit must be a whole number from 1 to ${MAX_APPROVAL_LIMIT}`);
+			throw new NodeOperationError(node, `'Limit' must be a whole number from 1 to ${MAX_APPROVAL_LIMIT}`);
 		}
 	}
 	const cursor = String(parameters.cursor ?? '').trim();
@@ -307,17 +312,17 @@ function buildApprovalListRequest(node: INode, parameters: IDataObject): Operati
 function buildPolicyCheckRequest(node: INode, parameters: IDataObject): OperationRequest {
 	const type = String(parameters.type ?? 'draft');
 	if (!POLICY_POST_TYPES.includes(type)) {
-		throw new NodeOperationError(node, 'Post Type must be Draft, Schedule or Now');
+		throw new NodeOperationError(node, "'Post Type' must be Draft, Schedule or Now");
 	}
 	const publishDate = String(parameters.publishDate ?? '').trim();
-	if (type === 'schedule' && !publishDate) throw new NodeOperationError(node, 'Publish Date is required for scheduled posts');
+	if (type === 'schedule' && !publishDate) throw new NodeOperationError(node, "'Publish Date' is required for scheduled posts");
 	const collection = (parameters.channelPosts ?? {}) as ChannelPostCollection;
 	const entries = collection.channelPost ?? [];
-	if (entries.length === 0) throw new NodeOperationError(node, 'At least one Channel Post is required');
-	if (entries.length > 20) throw new NodeOperationError(node, 'At most 20 Channel Posts can be checked at once');
+	if (entries.length === 0) throw new NodeOperationError(node, "At least one 'Channel Post' is required");
+	if (entries.length > 20) throw new NodeOperationError(node, "At most 20 entries in 'Channel Posts' can be checked at once");
 	const posts = entries.map((entry) => {
 		const channelId = String(entry.channelId ?? '').trim();
-		if (!channelId) throw new NodeOperationError(node, 'Channel is required for every Channel Post');
+		if (!channelId) throw new NodeOperationError(node, "'Channel' is required for every 'Channel Post'");
 		const media = validateMedia(node, parseArray<PostSiderMedia>(node, entry.mediaJson, 'Media JSON'));
 		return {
 			integration: { id: channelId },
@@ -388,14 +393,14 @@ export function buildOperationRequest(
 	if (resource === 'group' && operation === 'update') {
 		return {
 			method: 'PUT',
-			endpoint: `/customers/${encodedId(node, parameters, 'targetGroupId', 'Group ID')}`,
+			endpoint: `/customers/${encodedId(node, parameters, 'targetGroupId', groupField(parameters))}`,
 			input: { body: { name: groupName(node, parameters) } },
 		};
 	}
 	if (resource === 'group' && operation === 'archive') {
 		return {
 			method: 'POST',
-			endpoint: `/customers/${encodedId(node, parameters, 'targetGroupId', 'Group ID')}/archive`,
+			endpoint: `/customers/${encodedId(node, parameters, 'targetGroupId', groupField(parameters))}/archive`,
 			input: {},
 		};
 	}
@@ -458,10 +463,10 @@ export function buildOperationRequest(
 		try {
 			url = new URL(value);
 		} catch {
-			throw new NodeOperationError(node, 'URL must be a valid public HTTPS URL');
+			throw new NodeOperationError(node, "'URL' must be a valid public HTTPS URL");
 		}
 		if (url.protocol !== 'https:' || url.username || url.password) {
-			throw new NodeOperationError(node, 'URL must be a valid public HTTPS URL');
+			throw new NodeOperationError(node, "'URL' must be a valid public HTTPS URL");
 		}
 		// Same rule as the backend, so a wrong extension is reported here and not as a plain 400.
 		if (!hasMediaExtension(url.toString())) {

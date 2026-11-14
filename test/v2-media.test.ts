@@ -44,8 +44,8 @@ test('parseIdList splits, trims, dedupes and drops empties', () => {
 });
 
 test('parseIdList throws on empty input', () => {
-	assert.throws(() => parseIdList(testNode, [], 'Channels'), /Channels must list at least one value/);
-	assert.throws(() => parseIdList(testNode, ' , ', 'Channels'), /Channels must list at least one value/);
+	assert.throws(() => parseIdList(testNode, [], 'Channels'), /'Channels' must list at least one value/);
+	assert.throws(() => parseIdList(testNode, ' , ', 'Channels'), /'Channels' must list at least one value/);
 });
 
 test('parseUrlList requires public HTTPS URLs without credentials', () => {

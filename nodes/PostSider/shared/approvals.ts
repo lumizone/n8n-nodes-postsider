@@ -25,10 +25,16 @@ export function readControlParameters(
 	if (resource === 'channel') return { groupId: get('groupId', '') } as IDataObject;
 	if (resource === 'group') {
 		if (operation === 'create') return { groupName: get('groupName') } as IDataObject;
+		// Version 2 shows the group as 'Group Name or ID'; the error message uses the name on screen.
+		const groupField = context.getNode().typeVersion >= 2 ? 'Group Name or ID' : 'Group ID';
 		if (operation === 'update') {
-			return { targetGroupId: get('targetGroupId'), groupName: get('groupName') } as IDataObject;
+			return {
+				targetGroupId: get('targetGroupId'),
+				groupName: get('groupName'),
+				groupField,
+			} as IDataObject;
 		}
-		if (operation === 'archive') return { targetGroupId: get('targetGroupId') } as IDataObject;
+		if (operation === 'archive') return { targetGroupId: get('targetGroupId'), groupField } as IDataObject;
 		return {};
 	}
 	if (resource === 'policy') {

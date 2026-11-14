@@ -131,7 +131,7 @@ test('post create requires a publish date when scheduling', () => {
 				'exec_1',
 				0,
 			),
-		/Publish Date is required/,
+		/'Publish Date' is required/,
 	);
 });
 
@@ -259,7 +259,7 @@ test('approval request posts to request-approval without a body', () => {
 	});
 	assert.throws(
 		() => buildOperationRequest(testNode, 'approval', 'request', { postId: ' ' }, 'e', 0),
-		/Post ID is required/,
+		/'Post ID' is required/,
 	);
 });
 
@@ -334,11 +334,11 @@ test('approval decision without a stage binding uses a random per-call key and n
 test('approval decisions validate the id and the note length', () => {
 	assert.throws(
 		() => buildOperationRequest(testNode, 'approval', 'approve', { approvalId: '' }, 'e', 0),
-		/Approval ID is required/,
+		/'Approval ID' is required/,
 	);
 	assert.throws(
 		() => buildOperationRequest(testNode, 'approval', 'reject', { approvalId: '  ' }, 'e', 0),
-		/Approval ID is required/,
+		/'Approval ID' is required/,
 	);
 	assert.doesNotThrow(() =>
 		buildOperationRequest(testNode, 'approval', 'approve', { approvalId: 'a', note: 'x'.repeat(500) }, 'e', 0),
@@ -346,7 +346,7 @@ test('approval decisions validate the id and the note length', () => {
 	assert.throws(
 		() =>
 			buildOperationRequest(testNode, 'approval', 'approve', { approvalId: 'a', note: 'x'.repeat(501) }, 'e', 0),
-		/Note must be at most 500/,
+		/'Note' must be at most 500/,
 	);
 	assert.throws(
 		() => buildOperationRequest(testNode, 'approval', 'approve', { approvalId: 'a', ...BOUND }, 'bad exec id', 0),
@@ -380,12 +380,12 @@ test('approval get many maps filters to the query string with a bounded limit', 
 	for (const limit of [0, 101, 1.5, 'abc']) {
 		assert.throws(
 			() => buildOperationRequest(testNode, 'approval', 'getMany', { limit }, 'e', 0),
-			/Limit must be a whole number/,
+			/'Limit' must be a whole number/,
 		);
 	}
 	assert.throws(
 		() => buildOperationRequest(testNode, 'approval', 'getMany', { status: 'DONE' }, 'e', 0),
-		/Status must be/,
+		/'Status' must be/,
 	);
 	assert.throws(
 		() => buildOperationRequest(testNode, 'approval', 'getMany', { since: 'yesterday' }, 'e', 0),
@@ -469,15 +469,15 @@ test('policy check validates type, date, channels and media', () => {
 	const posts = { channelPost: [{ channelId: 'c', content: 'x' }] };
 	assert.throws(
 		() => buildOperationRequest(testNode, 'policy', 'check', { type: 'later', channelPosts: posts }, 'e', 0),
-		/Post Type must be/,
+		/'Post Type' must be/,
 	);
 	assert.throws(
 		() => buildOperationRequest(testNode, 'policy', 'check', { type: 'schedule', channelPosts: posts }, 'e', 0),
-		/Publish Date is required/,
+		/'Publish Date' is required/,
 	);
 	assert.throws(
 		() => buildOperationRequest(testNode, 'policy', 'check', { type: 'draft', channelPosts: {} }, 'e', 0),
-		/At least one Channel Post/,
+		/At least one 'Channel Post'/,
 	);
 	assert.throws(
 		() =>
@@ -489,7 +489,7 @@ test('policy check validates type, date, channels and media', () => {
 				'e',
 				0,
 			),
-		/Channel is required/,
+		/'Channel' is required/,
 	);
 	assert.throws(
 		() =>
@@ -549,7 +549,7 @@ test('group create, rename and archive map to the customer routes', () => {
 });
 
 test('group operations validate names and ids', () => {
-	assert.throws(() => buildOperationRequest(testNode, 'group', 'create', { groupName: '   ' }, 'e', 0), /Group Name is required/);
+	assert.throws(() => buildOperationRequest(testNode, 'group', 'create', { groupName: '   ' }, 'e', 0), /'Group Name' is required/);
 	assert.throws(
 		() => buildOperationRequest(testNode, 'group', 'create', { groupName: 'x'.repeat(101) }, 'e', 0),
 		/at most 100/,
@@ -557,10 +557,10 @@ test('group operations validate names and ids', () => {
 	assert.doesNotThrow(() => buildOperationRequest(testNode, 'group', 'create', { groupName: 'x'.repeat(100) }, 'e', 0));
 	assert.throws(
 		() => buildOperationRequest(testNode, 'group', 'update', { targetGroupId: '', groupName: 'a' }, 'e', 0),
-		/Group ID is required/,
+		/'Group ID' is required/,
 	);
 	assert.throws(
 		() => buildOperationRequest(testNode, 'group', 'archive', { targetGroupId: ' ' }, 'e', 0),
-		/Group ID is required/,
+		/'Group ID' is required/,
 	);
 });

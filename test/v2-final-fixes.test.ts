@@ -187,7 +187,7 @@ test('5. Publish with Public URLs and an empty list throws before any upload', a
 		() => executePublish(ctx, 0, {}, at('2026-11-11T10:00:00Z'), noSleep),
 		(error: any) => {
 			assert.ok(error instanceof NodeOperationError);
-			assert.match(error.message, /Media URLs must list at least one URL/);
+			assert.match(error.message, /'Media URLs' must list at least one URL/);
 			return true;
 		},
 	);

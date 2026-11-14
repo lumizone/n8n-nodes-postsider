@@ -35,6 +35,14 @@ export async function getGroups(this: ILoadOptionsFunctions): Promise<INodePrope
 	];
 }
 
+/** The groups of the organization, without the "All Groups" entry (for rename and archive). */
+export async function getGroupChoices(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
+	const groups = await (postSiderApiRequest<Group[]>).call(this, 'GET', '/groups');
+	return groups
+		.map((group) => ({ name: group.name, value: group.id }))
+		.sort((a, b) => a.name.localeCompare(b.name));
+}
+
 interface ChannelTool {
 	methodName?: string;
 	description?: string;

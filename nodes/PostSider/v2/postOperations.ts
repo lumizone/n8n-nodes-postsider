@@ -25,7 +25,7 @@ function has(value: unknown): boolean {
 
 function required(node: INode, params: IDataObject, name: string, displayName: string): string {
 	const value = String(params[name] ?? '').trim();
-	if (!value) throw new NodeOperationError(node, `${displayName} is required`);
+	if (!value) throw new NodeOperationError(node, `'${displayName}' is required`);
 	return value;
 }
 
@@ -44,7 +44,7 @@ function listRange(node: INode, params: IDataObject, now: Date): IDataObject {
 		const from = String(params.startDate ?? '').trim();
 		const to = String(params.endDate ?? '').trim();
 		if (!from || !to) {
-			throw new NodeOperationError(node, 'Custom range needs both a start date and an end date');
+			throw new NodeOperationError(node, "Custom range needs both 'Start Date' and 'End Date'");
 		}
 		start = normalizeScheduledDate(node, from, 'Start Date');
 		end = normalizeScheduledDate(node, to, 'End Date');
@@ -84,16 +84,16 @@ function buildUpdateBody(node: INode, params: IDataObject): IDataObject {
 
 function buildCheckBody(node: INode, params: IDataObject): IDataObject {
 	const content = String(params.text ?? '');
-	if (!content.trim()) throw new NodeOperationError(node, 'Text is required');
+	if (!content.trim()) throw new NodeOperationError(node, "'Text' is required");
 	if (content.length > CONTENT_MAX) {
-		throw new NodeOperationError(node, `Text must be at most ${CONTENT_MAX} characters`);
+		throw new NodeOperationError(node, `'Text' must be at most ${CONTENT_MAX} characters`);
 	}
 	const platforms = Array.isArray(params.platforms) ? (params.platforms as string[]) : [];
 	if (platforms.length === 0) {
-		throw new NodeOperationError(node, 'Choose at least one platform to check against');
+		throw new NodeOperationError(node, "Choose at least one platform in 'Platforms'");
 	}
 	if (platforms.length > CHECK_PLATFORMS_MAX) {
-		throw new NodeOperationError(node, `Choose at most ${CHECK_PLATFORMS_MAX} platforms to check against`);
+		throw new NodeOperationError(node, `Choose at most ${CHECK_PLATFORMS_MAX} platforms in 'Platforms'`);
 	}
 	const mediaType = String(params.mediaType ?? 'none');
 	if (!CHECK_MEDIA_TYPES.includes(mediaType)) {
@@ -111,16 +111,16 @@ function buildCheckBody(node: INode, params: IDataObject): IDataObject {
 
 function buildRewriteBody(node: INode, params: IDataObject): IDataObject {
 	const content = String(params.text ?? '');
-	if (!content.trim()) throw new NodeOperationError(node, 'Text is required');
+	if (!content.trim()) throw new NodeOperationError(node, "'Text' is required");
 	if (content.length > CONTENT_MAX) {
-		throw new NodeOperationError(node, `Text must be at most ${CONTENT_MAX} characters`);
+		throw new NodeOperationError(node, `'Text' must be at most ${CONTENT_MAX} characters`);
 	}
 	const body: IDataObject = { content };
 	if (params.tone) body.tone = String(params.tone);
 	if (has(params.count)) {
 		const count = Number(params.count);
 		if (!Number.isInteger(count) || count < 1 || count > 5) {
-			throw new NodeOperationError(node, 'Number of versions must be a whole number between 1 and 5');
+			throw new NodeOperationError(node, "'Number of Versions' must be a whole number between 1 and 5");
 		}
 		body.count = count;
 	}
@@ -170,7 +170,7 @@ export function buildPostRequest(
 		case 'changeStatus': {
 			const status = String(params.status ?? 'schedule');
 			if (status !== 'draft' && status !== 'schedule') {
-				throw new NodeOperationError(node, 'Status must be Draft or Schedule');
+				throw new NodeOperationError(node, "'Status' must be Draft or Schedule");
 			}
 			return {
 				method: 'PUT',
@@ -181,7 +181,7 @@ export function buildPostRequest(
 		case 'retryFailed':
 			return {
 				method: 'POST',
-				endpoint: `/posts/group/${encodedId(node, params, 'postGroup', 'Group ID')}/retry-failed`,
+				endpoint: `/posts/group/${encodedId(node, params, 'postGroup', 'Post Group ID')}/retry-failed`,
 				input: { body: {} },
 			};
 		case 'check':
@@ -199,7 +199,7 @@ export function buildPostRequest(
 		case 'getAnalytics': {
 			const days = has(params.days) ? Number(params.days) : DEFAULT_ANALYTICS_DAYS;
 			if (!Number.isFinite(days) || days < 1) {
-				throw new NodeOperationError(node, 'Days must be at least 1');
+				throw new NodeOperationError(node, "'Days' must be at least 1");
 			}
 			return {
 				method: 'GET',
@@ -384,7 +384,7 @@ async function executeUpdate(
 	let binaryNames: string[] = [];
 	let mediaUrls: string[] = [];
 	if (mediaSource === 'binary') {
-		binaryNames = parseIdList(node, get('updateBinaryProperties', 'data'), 'Binary property names');
+		binaryNames = parseIdList(node, get('updateBinaryProperties', 'data'), 'Input Binary Field');
 		params.images = [];
 	} else if (mediaSource === 'url') {
 		mediaUrls = parseUrlList(node, get('updateMediaUrls', ''));
@@ -394,7 +394,7 @@ async function executeUpdate(
 		if (uploaded.length === 0) {
 			throw new NodeOperationError(
 				node,
-				'Media JSON is empty. To delete the media of the post, choose Remove All Media instead.',
+				"'Media JSON' is empty. To delete the media of the post, choose 'Remove All Media' instead.",
 				{ itemIndex: index },
 			);
 		}

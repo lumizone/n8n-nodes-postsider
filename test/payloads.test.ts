@@ -85,5 +85,5 @@ test('parseJsonObject accepts an object and rejects arrays', () => {
 	assert.deepEqual(parseJsonObject(testNode, '{"who_can_reply_post":"everyone"}', 'Settings'), {
 		who_can_reply_post: 'everyone',
 	});
-	assert.throws(() => parseJsonObject(testNode, '[]', 'Settings'), /Settings must be a JSON object/);
+	assert.throws(() => parseJsonObject(testNode, '[]', 'Settings'), /'Settings' must be a JSON object/);
 });

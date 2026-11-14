@@ -231,7 +231,7 @@ test('changeStatus is declared for version 2 with postId and status', () => {
 	) as any;
 	const option = op.options.find((o: any) => o.value === 'changeStatus');
 	assert.equal(option.name, 'Change Status');
-	assert.equal(option.action, 'Move a post between draft and queue');
+	assert.equal(option.action, 'Move post between draft and queue');
 	const fieldsFor = (name: string) =>
 		v2Properties.filter((p) => {
 			const show = p.displayOptions?.show as any;
@@ -262,7 +262,7 @@ test('getOptions triggers the platform tool with its data map', () => {
 		methodName: 'boards',
 		data: {},
 	});
-	assert.throws(() => build('getOptions', { channelId: 'c1', tool: ' ' }), /Option List Name or ID is required/);
+	assert.throws(() => build('getOptions', { channelId: 'c1', tool: ' ' }), /'Option List Name or ID' is required/);
 	assert.throws(() => build('getOptions', { tool: 'boards' }), /Channel/);
 });
 

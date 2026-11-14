@@ -205,7 +205,7 @@ test('workflow approve reports a missing approval id as an item error', async ()
 		responses: [],
 	});
 	assert.equal(result.requests.length, 0);
-	assert.match(String(result.output[0].json.error), /Approval ID is required/);
+	assert.match(String(result.output[0].json.error), /'Approval ID' is required/);
 });
 
 test('workflow approval get many returns one page when Return All is off', async () => {

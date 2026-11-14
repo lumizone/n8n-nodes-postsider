@@ -51,7 +51,7 @@ export async function uploadBinaries(
 	propertyNames: string[],
 ): Promise<PostSiderMedia[]> {
 	if (propertyNames.length === 0) {
-		throw new NodeOperationError(ctx.getNode(), 'Binary property names must list at least one value', {
+		throw new NodeOperationError(ctx.getNode(), "'Input Binary Field' must list at least one value", {
 			itemIndex,
 		});
 	}

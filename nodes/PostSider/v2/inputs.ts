@@ -34,7 +34,7 @@ function splitList(value: unknown): string[] {
 export function parseIdList(node: INode, value: unknown, displayName: string): string[] {
 	const list = splitList(value);
 	if (list.length === 0) {
-		throw new NodeOperationError(node, `${displayName} must list at least one value`);
+		throw new NodeOperationError(node, `'${displayName}' must list at least one value`);
 	}
 	return list;
 }
@@ -51,14 +51,14 @@ export function parseMediaJson(node: INode, value: unknown): PostSiderMedia[] {
 	try {
 		parsed = typeof value === 'string' ? JSON.parse(value) : value;
 	} catch {
-		throw new NodeOperationError(node, 'Media JSON must contain valid JSON');
+		throw new NodeOperationError(node, "'Media JSON' must contain valid JSON");
 	}
 	if (!Array.isArray(parsed)) {
-		throw new NodeOperationError(node, 'Media JSON must be a JSON array');
+		throw new NodeOperationError(node, "'Media JSON' must be a JSON array");
 	}
 	for (const item of parsed as PostSiderMedia[]) {
 		if (!item || typeof item !== 'object' || !String(item.id ?? '') || !String(item.path ?? '')) {
-			throw new NodeOperationError(node, 'Media JSON entries must include non-empty id and path fields');
+			throw new NodeOperationError(node, "'Media JSON' entries must include non-empty id and path fields");
 		}
 	}
 	return parsed as PostSiderMedia[];

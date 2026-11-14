@@ -12,7 +12,7 @@ export class PostSiderApi implements ICredentialType {
 		light: 'file:../nodes/PostSider/postsider.svg',
 		dark: 'file:../nodes/PostSider/postsider.dark.svg',
 	} as const;
-	documentationUrl = 'https://docs.postsider.com/api/quickstart';
+	documentationUrl = 'https://docs.postsider.com/security/authentication';
 
 	properties: INodeProperties[] = [
 		{

@@ -55,7 +55,7 @@ test('schedule normalizes date and requires it', () => {
 		resolvePublishDate(testNode, 'schedule', '2026-12-01T09:30:00', NOW),
 		'2026-12-01T09:30:00.000Z',
 	);
-	assert.throws(() => resolvePublishDate(testNode, 'schedule', '', NOW), /Date is required/);
+	assert.throws(() => resolvePublishDate(testNode, 'schedule', '', NOW), /'Date' is required/);
 	assert.throws(() => resolvePublishDate(testNode, 'schedule', 'nope', NOW), /valid ISO/);
 	const request = buildPublishRequest(testNode, input({ when: 'schedule' }), providers, '2026-12-01T09:30:00.000Z');
 	assert.equal(body(request).type, 'schedule');
@@ -129,7 +129,7 @@ test('settings JSON applies to all channels or keyed by channel id', () => {
 test('youtube needs a title of 2 characters', () => {
 	assert.throws(
 		() => buildPublishRequest(testNode, input({ channels: ['yt'], text: 'a' }), providers, NOW.toISOString()),
-		/YouTube needs a title of 2 to 100 characters\. Set Options > Platform Settings > Title\./,
+		/YouTube needs a title of 2 to 100 characters\. Set 'Options' > 'Platform Settings' > 'Title'\./,
 	);
 	const ok = buildPublishRequest(testNode, input({ channels: ['yt'], text: 'Long enough' }), providers, NOW.toISOString());
 	assert.equal(posts(ok)[0].settings.title, 'Long enough');

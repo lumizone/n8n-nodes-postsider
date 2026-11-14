@@ -37,13 +37,13 @@ export function normalizeApiBaseUrl(node: INode, value: string): string {
 	try {
 		url = new URL(value);
 	} catch {
-		throw new NodeOperationError(node, 'Base URL must be a valid absolute URL');
+		throw new NodeOperationError(node, "'Base URL' must be a valid absolute URL");
 	}
 	if (url.username || url.password) {
-		throw new NodeOperationError(node, 'Base URL must not include credentials');
+		throw new NodeOperationError(node, "'Base URL' must not include credentials");
 	}
 	if (url.protocol !== 'https:' && !(url.protocol === 'http:' && isLoopback(url.hostname))) {
-		throw new NodeOperationError(node, 'Base URL must use HTTPS unless it points to a local development server');
+		throw new NodeOperationError(node, "'Base URL' must use HTTPS unless it points to a local development server");
 	}
 	url.search = '';
 	url.hash = '';

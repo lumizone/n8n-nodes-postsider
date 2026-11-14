@@ -112,10 +112,10 @@ export function parseJsonObject(
 	try {
 		parsed = JSON.parse(value);
 	} catch {
-		throw new NodeOperationError(node, `${fieldName} must contain valid JSON`);
+		throw new NodeOperationError(node, `'${fieldName}' must contain valid JSON`);
 	}
 	if (parsed === null || Array.isArray(parsed) || typeof parsed !== 'object') {
-		throw new NodeOperationError(node, `${fieldName} must be a JSON object`);
+		throw new NodeOperationError(node, `'${fieldName}' must be a JSON object`);
 	}
 	return parsed as Record<string, unknown>;
 }

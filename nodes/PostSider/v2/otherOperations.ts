@@ -27,7 +27,7 @@ function has(value: unknown): boolean {
 
 function required(node: INode, params: IDataObject, name: string, displayName: string): string {
 	const value = String(params[name] ?? '').trim();
-	if (!value) throw new NodeOperationError(node, `${displayName} is required`);
+	if (!value) throw new NodeOperationError(node, `'${displayName}' is required`);
 	return value;
 }
 
@@ -38,7 +38,7 @@ function encodedId(node: INode, params: IDataObject, name: string, displayName: 
 function days(node: INode, params: IDataObject): number {
 	const value = has(params.days) && params.days !== '' ? Number(params.days) : DEFAULT_ANALYTICS_DAYS;
 	if (!Number.isFinite(value) || value < 1) {
-		throw new NodeOperationError(node, 'Days must be at least 1');
+		throw new NodeOperationError(node, "'Days' must be at least 1");
 	}
 	return Math.floor(value);
 }
@@ -75,7 +75,7 @@ function buildChannelRequest(node: INode, operation: string, params: IDataObject
 			};
 		case 'getOptions': {
 			const methodName = String(params.tool ?? '').trim();
-			if (!methodName) throw new NodeOperationError(node, 'Option List Name or ID is required');
+			if (!methodName) throw new NodeOperationError(node, "'Option List Name or ID' is required");
 			const entries = (((params.toolData as IDataObject | undefined)?.field ?? []) as Array<{
 				key?: unknown;
 				value?: unknown;
@@ -228,14 +228,14 @@ async function executeUpload(ctx: IExecuteFunctions, index: number): Promise<IDa
 	if (source === 'url') {
 		const urls = parseUrlList(node, ctx.getNodeParameter('uploadUrls', index, ''));
 		if (urls.length === 0) {
-			throw new NodeOperationError(node, 'Media URLs must list at least one URL', { itemIndex: index });
+			throw new NodeOperationError(node, "'Media URLs' must list at least one URL", { itemIndex: index });
 		}
 		media = await uploadFromUrls(node, api, urls);
 	} else {
 		const names = parseIdList(
 			node,
 			ctx.getNodeParameter('uploadBinaryProperties', index, 'data'),
-			'Binary property names',
+			'Input Binary Field',
 		);
 		media = await uploadBinaries(ctx, api, index, names);
 	}
