@@ -52,8 +52,8 @@
         "select": "channel",
         "channelId": {
           "__rl": true,
-          "value": "REPLACE_WITH_SLACK_CHANNEL_ID",
-          "mode": "id"
+          "value": "",
+          "mode": "list"
         },
         "text": "=Approval needed for a {{ $json.channel ? $json.channel.name + ' (' + $json.channel.providerIdentifier + ')' : 'PostSider' }} post (stage {{ $json.stage ? $json.stage.position : '?' }}).\nRequested at: {{ $json.requestedAt }}\nApproval ID: {{ $json.id }}\nPost ID: {{ $json.postId }}",
         "otherOptions": {}
