@@ -9,7 +9,7 @@ import type {
 } from 'n8n-workflow';
 import { NodeOperationError } from 'n8n-workflow';
 
-import { missingRouteError } from './errors';
+import { missingRouteError, withServerMessage } from './errors';
 
 type PostSiderFunctions = IExecuteFunctions | ILoadOptionsFunctions | IPollFunctions;
 
@@ -91,6 +91,6 @@ export async function postSiderApiRequest<T = IDataObject>(
 			options,
 		)) as T;
 	} catch (error) {
-		throw missingRouteError(this.getNode(), error) ?? error;
+		throw missingRouteError(this.getNode(), error) ?? withServerMessage(this.getNode(), error) ?? error;
 	}
 }

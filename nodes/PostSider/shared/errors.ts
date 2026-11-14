@@ -3,7 +3,7 @@ import { NodeApiError, NodeOperationError } from 'n8n-workflow';
 
 export const MISSING_ROUTE_MESSAGE = 'This operation is not available on this PostSider server';
 export const MISSING_ROUTE_DESCRIPTION =
-	'The server has no route for this request. Update the PostSider server to version 2026-11 or newer.';
+	'The PostSider server you are connected to does not offer this feature.';
 
 const MISSING_ROUTE_PATTERN = /Cannot (?:GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS) \//;
 
@@ -65,6 +65,70 @@ export function missingRouteError(node: INode, error: unknown): NodeApiError | u
 		description: MISSING_ROUTE_DESCRIPTION,
 		httpCode: '404',
 	});
+}
+
+/** The text of a `{ msg }` object, or of a JSON string that holds one. */
+function msgOf(value: unknown): string | undefined {
+	let object = value;
+	if (typeof object === 'string') {
+		const text = object.trim();
+		if (!text.startsWith('{')) return undefined;
+		try {
+			object = JSON.parse(text);
+		} catch {
+			return undefined;
+		}
+	}
+	const msg = asLoose(object)?.msg;
+	return typeof msg === 'string' && msg.trim() !== '' ? msg.trim() : undefined;
+}
+
+/**
+ * The message PostSider put in the body of an error answer. Most errors of the PostSider API are
+ * `{ "msg": "..." }`. Depending on how n8n or the HTTP library wrapped the failure, the body is in one of
+ * several places; Nest's own `{ message }` bodies are not read here because n8n already uses them.
+ */
+export function serverMessageOf(error: unknown): string | undefined {
+	const raw = asLoose(error);
+	if (!raw) return undefined;
+	const cause = asLoose(raw.cause);
+	const candidates: unknown[] = [
+		asLoose(raw.context)?.data,
+		asLoose(cause?.response)?.data,
+		asLoose(raw.response)?.data,
+		asLoose(raw.response)?.body,
+		raw.error,
+		raw.description,
+	];
+	for (const candidate of candidates) {
+		const msg = msgOf(candidate);
+		if (msg) return msg;
+	}
+	return undefined;
+}
+
+/**
+ * Puts the server message of an HTTP error into the error description, and keeps n8n's status message
+ * (for example 'Bad request - please check your parameters') as the message. Returns undefined when the
+ * error has no HTTP status or no `msg` body, so the caller keeps the original error.
+ *
+ * A NodeApiError is changed in place: n8n returns the original when one is wrapped again, and the original
+ * keeps the response headers that Wait for Result reads (Retry-After). Any other error becomes a
+ * NodeApiError for the same node, with the original as its cause.
+ */
+export function withServerMessage(node: INode, error: unknown): NodeApiError | undefined {
+	const status = httpStatusOf(error);
+	if (status === undefined) return undefined;
+	const msg = serverMessageOf(error);
+	if (!msg) return undefined;
+	if (error instanceof NodeApiError) {
+		error.description = msg;
+		return error;
+	}
+	const wrapped = new NodeApiError(node, error as JsonObject, { httpCode: String(status) });
+	// A body with a `message` as well would otherwise take the place of the server's `msg`.
+	wrapped.description = msg;
+	return wrapped;
 }
 
 /**

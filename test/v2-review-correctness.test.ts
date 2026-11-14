@@ -249,7 +249,7 @@ test('B11. the AI operations keep the 409 and 402 notes and name no scope', () =
 
 // ---- B14: missing route ----
 
-test('B14. a 404 "Cannot GET /public/v1/..." becomes a clear server version error', async () => {
+test('B14. a 404 "Cannot GET /public/v1/..." becomes a clear not offered by this server error', async () => {
 	const cases: unknown[] = [
 		Object.assign(new NodeApiError(testNode, { message: 'x' } as JsonObject, { httpCode: '404' }), {
 			description: 'Cannot GET /public/v1/approvals',
@@ -268,7 +268,7 @@ test('B14. a 404 "Cannot GET /public/v1/..." becomes a clear server version erro
 			(error: any) => {
 				assert.ok(error instanceof NodeApiError);
 				assert.equal(error.message, 'This operation is not available on this PostSider server');
-				assert.match(String(error.description), /2026-11 or newer/);
+				assert.equal(error.description, 'The PostSider server you are connected to does not offer this feature.');
 				assert.equal(error.httpCode, '404');
 				return true;
 			},
