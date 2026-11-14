@@ -120,9 +120,9 @@ test('v2 declares the fields of every other resource for version 2 only', () => 
 	}
 	assert.deepEqual(names('channel', 'getAnalytics').sort(), ['channelId', 'days']);
 	assert.deepEqual(names('publishing', 'pause'), ['reason']);
-	assert.deepEqual(names('approval', 'approve').sort(), ['approvalId', 'note']);
+	assert.deepEqual(names('approval', 'approve').sort(), ['approvalAdditionalFields', 'approvalId']);
 	assert.deepEqual(names('approval', 'request'), ['postId']);
-	assert.deepEqual(names('approval', 'getMany').sort(), ['approvalStatus', 'limit', 'returnAll', 'since']);
+	assert.deepEqual(names('approval', 'getMany').sort(), ['approvalFilters', 'limit', 'returnAll']);
 	assert.deepEqual(names('group', 'update').sort(), ['groupName', 'targetGroupId']);
 	assert.deepEqual(names('policy', 'check').sort(), ['policyChannelPosts', 'policyPublishDate', 'policyType']);
 	const groupId = v2Properties.find((p) => p.name === 'groupId');
@@ -139,7 +139,7 @@ function makeContext(params: Record<string, unknown>, responses: unknown[], extr
 		getExecutionId: () => 'ex1',
 		getCredentials: async () => ({ apiKey: 'k', baseUrl: 'https://api.postsider.com' }),
 		continueOnFail: () => false,
-		getNode: () => testNode,
+		getNode: () => ({ ...testNode, typeVersion: 2 }),
 		helpers: {
 			httpRequestWithAuthentication: async (_c: string, options: Record<string, unknown>) => {
 				requests.push(options);
@@ -188,7 +188,7 @@ test('executor: channel getMany filters disabled channels client side', async ()
 
 test('executor: v2 approve reads the approval then sends a stage bound decision', async () => {
 	const { context, requests } = makeContext(
-		{ resource: 'approval', operation: 'approve', approvalId: 'appr_1', note: 'ok' },
+		{ resource: 'approval', operation: 'approve', approvalId: 'appr_1', approvalAdditionalFields: { note: 'ok' } },
 		[{ id: 'appr_1', requestedAt: '2026-11-04T10:00:00.000Z', stage: { position: 2 } }, { status: 'APPROVED' }],
 	);
 	await executeV2.call(context);
@@ -198,15 +198,39 @@ test('executor: v2 approve reads the approval then sends a stage bound decision'
 	assert.match(String(requests[1].headers['Idempotency-Key']), /^n8n:ex1:PostSider:item:0:[0-9a-f]{32}$/);
 });
 
-test('executor: v2 approval getMany maps approvalStatus to status and pages', async () => {
+test('executor: v2 approval getMany maps the Status filter to status and pages', async () => {
 	const { context, requests } = makeContext(
-		{ resource: 'approval', operation: 'getMany', approvalStatus: 'PENDING', returnAll: true },
+		{ resource: 'approval', operation: 'getMany', approvalFilters: { status: 'PENDING' }, returnAll: true },
 		[{ approvals: [{ id: '1' }], nextCursor: 'c2' }, { approvals: [{ id: '2' }] }],
 	);
 	const out = await executeV2.call(context);
 	assert.equal(requests[0].qs.status, 'PENDING');
 	assert.equal(requests[1].qs.cursor, 'c2');
 	assert.deepEqual(out[0].map((o: any) => o.json.id), ['1', '2']);
+});
+
+test('executor: v2 approval getMany without filters sends no status or since', async () => {
+	const { context, requests } = makeContext(
+		{ resource: 'approval', operation: 'getMany', returnAll: false, limit: 5 },
+		[{ approvals: [] }],
+	);
+	await executeV2.call(context);
+	assert.equal(requests[0].qs.status, undefined);
+	assert.equal(requests[0].qs.since, undefined);
+});
+
+test('v2 approval optional fields live in collections, never at the top level', () => {
+	const topLevel = v2Properties
+		.filter((p) => (p.displayOptions?.show as any)?.resource?.includes('approval'))
+		.map((p) => p.name);
+	for (const name of ['approvalStatus', 'since', 'note']) assert.ok(!topLevel.includes(name), name);
+	const filters = v2Properties.find((p) => p.name === 'approvalFilters');
+	assert.equal(filters?.type, 'collection');
+	assert.deepEqual((filters?.options as any[]).map((o) => o.name), ['since', 'status']);
+	const extra = v2Properties.find((p) => p.name === 'approvalAdditionalFields');
+	assert.equal(extra?.type, 'collection');
+	assert.deepEqual((extra?.options as any[]).map((o) => o.name), ['note']);
+	assert.deepEqual((extra?.displayOptions?.show as any)?.operation, ['approve', 'reject']);
 });
 
 test('executor: publishing pause posts the reason', async () => {

@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.3.2 - 2026-11-14
+
+### Changed
+
+- Node version 2, Approval > Get Many: Status and Requested Since moved into a Filters collection. Without a Status filter all approvals are returned (before, the default was Pending).
+- Node version 2, Approval > Approve and Reject: Note moved into an Additional Fields collection.
+- Codex files no longer declare `subcategories`.
+- Version 1 nodes are unchanged.
+
 ## 0.3.1 - 2026-11-11
 
 ### Fixed

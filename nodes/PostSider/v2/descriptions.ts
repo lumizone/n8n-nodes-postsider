@@ -1073,8 +1073,11 @@ const show = (resource: string, ...operations: string[]) => ({ ...V2, resource: 
  * with the same code. They are taken from the version 1 list and re-shown for version 2.
  */
 const CONTROL_RESOURCES = ['approval', 'group', 'policy', 'channel'];
+/** Optional version 1 fields that version 2 shows inside a Filters or Additional Fields collection instead. */
+const V1_ONLY_FIELDS = new Set(['approvalStatus', 'since', 'note']);
 const controlFields: INodeProperties[] = v1Fields
 	.filter((property) => {
+		if (V1_ONLY_FIELDS.has(property.name)) return false;
 		const resources = (property.displayOptions?.show?.resource ?? []) as string[];
 		return resources.length > 0 && resources.every((resource) => CONTROL_RESOURCES.includes(resource));
 	})
@@ -1084,6 +1087,53 @@ const controlFields: INodeProperties[] = v1Fields
 	}));
 
 const otherFields: INodeProperties[] = [
+	{
+		displayName: 'Filters',
+		name: 'approvalFilters',
+		type: 'collection',
+		placeholder: 'Add Filter',
+		default: {},
+		displayOptions: { show: show('approval', 'getMany') },
+		options: [
+			{
+				displayName: 'Requested Since',
+				name: 'since',
+				type: 'dateTime',
+				default: '',
+				description: 'Only return approvals requested at or after this time',
+			},
+			{
+				displayName: 'Status',
+				name: 'status',
+				type: 'options',
+				options: [
+					{ name: 'Approved', value: 'APPROVED' },
+					{ name: 'Pending', value: 'PENDING' },
+					{ name: 'Rejected', value: 'REJECTED' },
+				],
+				default: 'PENDING',
+				description: 'Only return approvals with this status',
+			},
+		],
+	},
+	{
+		displayName: 'Additional Fields',
+		name: 'approvalAdditionalFields',
+		type: 'collection',
+		placeholder: 'Add Field',
+		default: {},
+		displayOptions: { show: show('approval', 'approve', 'reject') },
+		options: [
+			{
+				displayName: 'Note',
+				name: 'note',
+				type: 'string',
+				typeOptions: { rows: 2 },
+				default: '',
+				description: 'Note stored with the decision (up to 500 characters)',
+			},
+		],
+	},
 	{
 		displayName: 'Post ID',
 		name: 'postId',

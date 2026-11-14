@@ -39,16 +39,23 @@ export function readControlParameters(
 		} as IDataObject;
 	}
 	if (resource === 'approval') {
+		// Version 2 keeps the optional fields in collections; version 1 keeps them at the top level.
+		const v2 = context.getNode().typeVersion >= 2;
 		if (operation === 'getMany') {
+			const filters = (v2 ? get('approvalFilters', {}) : {}) as IDataObject;
 			return {
-				status: get('approvalStatus', ''),
-				since: get('since', ''),
+				status: v2 ? (filters.status ?? '') : get('approvalStatus', ''),
+				since: v2 ? (filters.since ?? '') : get('since', ''),
 				returnAll: get('returnAll', false),
 				limit: get('limit', 50),
 			} as IDataObject;
 		}
 		if (operation === 'approve' || operation === 'reject') {
-			return { approvalId: get('approvalId'), note: get('note', '') } as IDataObject;
+			const extra = (v2 ? get('approvalAdditionalFields', {}) : {}) as IDataObject;
+			return {
+				approvalId: get('approvalId'),
+				note: v2 ? (extra.note ?? '') : get('note', ''),
+			} as IDataObject;
 		}
 		return { postId: get('postId') } as IDataObject;
 	}
