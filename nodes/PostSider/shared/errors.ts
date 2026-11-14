@@ -151,3 +151,14 @@ export function toNodeError(
 	}
 	return new NodeOperationError(node, error as Error, options);
 }
+
+/**
+ * The JSON of an item that failed while 'Continue On Fail' is on: the error message and, when PostSider
+ * gave a reason (for example 'Only failed posts can be retried'), that reason as `description`.
+ */
+export function continueOnFailJson(error: unknown): { error: string; description?: string } {
+	const message = String((error as Error | undefined)?.message ?? error);
+	const raw = (error as { description?: unknown } | undefined)?.description;
+	const description = typeof raw === 'string' && raw.trim() !== '' && raw !== message ? raw : undefined;
+	return description ? { error: message, description } : { error: message };
+}

@@ -1,7 +1,7 @@
 import type { IDataObject, IExecuteFunctions, INodeExecutionData } from 'n8n-workflow';
 import { NodeOperationError } from 'n8n-workflow';
 
-import { toNodeError } from '../shared/errors';
+import { continueOnFailJson, toNodeError } from '../shared/errors';
 
 import { executeOtherOperation } from './otherOperations';
 import { executePostOperation } from './postOperations';
@@ -91,7 +91,7 @@ export async function executeV2(this: IExecuteFunctions): Promise<INodeExecution
 			);
 		} catch (error) {
 			if (this.continueOnFail()) {
-				returnData.push({ json: { error: (error as Error).message }, pairedItem: { item: index } });
+				returnData.push({ json: continueOnFailJson(error), pairedItem: { item: index } });
 				continue;
 			}
 			throw toNodeError(this.getNode(), error, index);

@@ -498,3 +498,13 @@ test('B13. version 1 Import From URL accepts a URL without an extension and stil
 	assert.throws(() => build('https://u:p@cdn.example/a.png'), /public HTTPS URL/);
 	assert.throws(() => build('nope'), /public HTTPS URL/);
 });
+
+test('continue on fail output keeps the PostSider reason as description', async () => {
+	const { continueOnFailJson } = await import('../nodes/PostSider/shared/errors.ts');
+	assert.deepEqual(continueOnFailJson({ message: 'Bad request - please check your parameters', description: 'Only failed posts can be retried' }), {
+		error: 'Bad request - please check your parameters',
+		description: 'Only failed posts can be retried',
+	});
+	assert.deepEqual(continueOnFailJson(new Error('plain')), { error: 'plain' });
+	assert.deepEqual(continueOnFailJson({ message: 'same', description: 'same' }), { error: 'same' });
+});

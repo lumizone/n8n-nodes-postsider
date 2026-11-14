@@ -10,7 +10,7 @@ import { NodeConnectionTypes } from 'n8n-workflow';
 import { getChannels, getChannelTools, getGroups } from './methods/loadOptions';
 import { fieldProperties, operationProperties, resourceProperty } from './resources/descriptions';
 import { readControlParameters, runControlRequest } from './shared/approvals';
-import { toNodeError } from './shared/errors';
+import { continueOnFailJson, toNodeError } from './shared/errors';
 import { extractList, normalizePostResponse, simplifyPostResponse } from './shared/operations';
 import { v2Properties } from './v2/descriptions';
 import { executeV2 } from './v2/execute';
@@ -138,7 +138,7 @@ export class PostSider implements INodeType {
 				);
 			} catch (error) {
 				if (this.continueOnFail()) {
-					returnData.push({ json: { error: (error as Error).message }, pairedItem: { item: index } });
+					returnData.push({ json: continueOnFailJson(error), pairedItem: { item: index } });
 					continue;
 				}
 				throw toNodeError(this.getNode(), error, index);
