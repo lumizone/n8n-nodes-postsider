@@ -491,7 +491,7 @@ const publishFields: INodeProperties[] = [
 				default: '',
 				placeholder: 'e.g. campaign_2026_10_item_1',
 				description:
-					'Stable retry key. When empty, the node derives one from the execution and item.',
+					'Stable retry key. When empty, the node derives one from the execution and item. PostSider remembers a key permanently for your organization. Reusing it returns the first result, or fails if the request is different.',
 			},
 			{
 				displayName: 'Per-Channel Text',

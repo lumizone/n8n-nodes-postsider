@@ -502,7 +502,7 @@ export function simplifyPostResponse(value: Record<string, unknown>): Record<str
 			? (value.integration as Record<string, unknown>)
 			: {};
 	const simplified: Record<string, unknown> = {};
-	for (const key of ['id', 'content', 'publishDate', 'state', 'releaseURL', 'group', 'image']) {
+	for (const key of ['id', 'content', 'publishDate', 'state', 'releaseURL', 'error', 'errorCode', 'group', 'image']) {
 		if (Object.prototype.hasOwnProperty.call(value, key)) simplified[key] = value[key];
 	}
 	if (integration.id !== undefined) simplified.integrationId = integration.id;

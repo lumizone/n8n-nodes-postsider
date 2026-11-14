@@ -21,7 +21,8 @@ export class PostSiderApi implements ICredentialType {
 			type: 'string',
 			typeOptions: { password: true },
 			default: '',
-			description: 'Organization API key from Settings > API in PostSider',
+			description:
+			"Organization API key from Settings > API in PostSider. Paste the key without 'Bearer'.",
 		},
 		{
 			displayName: 'Base URL',
@@ -37,7 +38,8 @@ export class PostSiderApi implements ICredentialType {
 		type: 'generic',
 		properties: {
 			headers: {
-				Authorization: '={{$credentials.apiKey}}',
+				// PostSider wants the bare key. A leading 'Bearer ' pasted by mistake would be rejected, so it is removed.
+				Authorization: "={{ String($credentials.apiKey).trim().replace(/^Bearer\\s+/i, '') }}",
 			},
 		},
 	};

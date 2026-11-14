@@ -15,8 +15,8 @@ function safePart(value: string): string {
 
 /**
  * The part of a derived Idempotency-Key that identifies where the request comes from:
- * `<instance>:<workflow>:<execution>`. The backend remembers a key for 7 days per organization, so two
- * n8n instances, two workflows or a reset n8n database must not produce the same key.
+ * `<instance>:<workflow>:<execution>`. The backend remembers a key permanently (it never expires) per
+ * organization, so two n8n instances, two workflows or a reset n8n database must not produce the same key.
  *
  * Instance and workflow are hashed (the instance ID is not meant to be shown). The same execution gives
  * the same value every time, so Retry On Fail repeats the same key. Without an execution ID a random

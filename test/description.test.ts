@@ -14,11 +14,31 @@ const credential = new PostSiderApi();
 test('credential stores the API key as a secret and tests the connection declaratively', () => {
 	const apiKey = credential.properties.find((property) => property.name === 'apiKey');
 	assert.equal(apiKey?.typeOptions?.password, true);
-	assert.deepEqual(credential.authenticate.properties.headers, {
-		Authorization: '={{$credentials.apiKey}}',
-	});
+	assert.deepEqual(Object.keys(credential.authenticate.properties.headers as object), ['Authorization']);
 	assert.equal(node.description.credentials?.[0].testedBy, undefined);
 	assert.equal(node.methods?.credentialTest, undefined);
+});
+
+function resolveAuthorization(apiKey: unknown): string {
+	const expression = String((credential.authenticate.properties.headers as Record<string, string>).Authorization);
+	assert.ok(expression.startsWith('={{') && expression.endsWith('}}'));
+	return runInNewContext(expression.slice(3, -2), { $credentials: { apiKey } }) as string;
+}
+
+test('the Authorization header is the bare key; an accidental Bearer prefix is removed', () => {
+	assert.equal(resolveAuthorization('ps_abc123'), 'ps_abc123');
+	assert.equal(resolveAuthorization('Bearer ps_abc123'), 'ps_abc123');
+	assert.equal(resolveAuthorization('bearer   ps_abc123'), 'ps_abc123');
+	assert.equal(resolveAuthorization('  BEARER ps_abc123\n'), 'ps_abc123');
+	assert.equal(resolveAuthorization('ps_abc123\n'), 'ps_abc123');
+	// only a leading word is removed, a key that merely contains it is kept
+	assert.equal(resolveAuthorization('xBearer ps_abc123'), 'xBearer ps_abc123');
+	assert.equal(resolveAuthorization('Bearerps_abc123'), 'Bearerps_abc123');
+});
+
+test('the API Key field says to paste the key without Bearer', () => {
+	const apiKey = credential.properties.find((property) => property.name === 'apiKey');
+	assert.match(String(apiKey?.description), /without 'Bearer'/);
 });
 
 function resolveTestBaseUrl(baseUrl: string): string {

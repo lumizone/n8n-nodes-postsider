@@ -468,7 +468,8 @@ const fieldPropertiesBase: INodeProperties[] = [
 		type: 'string',
 		default: '',
 		placeholder: 'e.g. campaign_2026_10_item_1',
-		description: 'Optional stable retry key. When empty, the node derives one from the execution and item.',
+		description:
+			'Optional stable retry key. When empty, the node derives one from the execution and item. PostSider remembers a key permanently for your organization. Reusing it returns the first result, or fails if the request is different.',
 		displayOptions: { show: { resource: ['post'], operation: ['create'] } },
 	},
 	{
