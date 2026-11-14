@@ -117,7 +117,7 @@ test('delete, duplicate and retryFailed', () => {
 });
 
 test('check builds the body with provider identifiers', () => {
-	const r = build('check', { text: 'Hello', hasMedia: true, mediaType: 'image', platforms: ['x', 'linkedin'] });
+	const r = build('check', { text: 'Hello', mediaType: 'image', platforms: ['x', 'linkedin'] });
 	assert.equal(r.method, 'POST');
 	assert.equal(r.endpoint, '/posts/check');
 	assert.deepEqual(r.input.body, {
@@ -126,8 +126,15 @@ test('check builds the body with provider identifiers', () => {
 		mediaType: 'image',
 		platforms: ['x', 'linkedin'],
 	});
-	const plain = build('check', { text: 'Hello', hasMedia: false, mediaType: 'image', platforms: ['x'] });
+	const plain = build('check', { text: 'Hello', mediaType: 'none', platforms: ['x'] });
 	assert.deepEqual(plain.input.body, { content: 'Hello', hasMedia: false, platforms: ['x'] });
+	// Without the option the post is checked as a text-only post.
+	assert.deepEqual(build('check', { text: 'Hello', platforms: ['x'] }).input.body, {
+		content: 'Hello',
+		hasMedia: false,
+		platforms: ['x'],
+	});
+	assert.throws(() => build('check', { text: 'Hello', mediaType: 'gif', platforms: ['x'] }), /Media Type/);
 });
 
 test('check validates platforms and length', () => {

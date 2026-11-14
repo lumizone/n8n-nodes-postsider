@@ -8,13 +8,17 @@ import {
 	normalizePostResponse,
 	type OperationRequest,
 } from '../shared/operations';
-import { postSiderApiRequest } from '../shared/transport';
+import { postSiderApiRequest, SLOW_REQUEST_TIMEOUT_MS } from '../shared/transport';
 import { parseIdList, parseUrlList } from './inputs';
 import { uploadBinaries, uploadFromUrls, type ApiCall } from './media';
 
 const DEFAULT_ANALYTICS_DAYS = 7;
 const CONTROL_RESOURCES = new Set(['approval', 'policy', 'group']);
 const MEDIA_LIST_KEYS = ['results', 'media', 'items', 'data'];
+const DEFAULT_MEDIA_LIMIT = 50;
+/** Hard cap on the pages fetched for Media > Get Many (50 pages of 18 files). */
+export const MAX_MEDIA_PAGES = 50;
+
 
 function has(value: unknown): boolean {
 	return value !== undefined && value !== null;
@@ -38,15 +42,14 @@ function days(node: INode, params: IDataObject): number {
 	return Math.floor(value);
 }
 
+/** One page of the media library. The backend counts pages from 1 and returns 18 files per page. */
+export function buildMediaListRequest(params: IDataObject, page: number): OperationRequest {
+	const search = String(params.search ?? '').trim();
+	return { method: 'GET', endpoint: '/media', input: { qs: { page, ...(search ? { search } : {}) } } };
+}
+
 function buildMediaRequest(node: INode, operation: string, params: IDataObject): OperationRequest {
-	if (operation === 'getMany') {
-		const page = has(params.page) && params.page !== '' ? Number(params.page) : 1;
-		if (!Number.isInteger(page) || page < 1) {
-			throw new NodeOperationError(node, 'Page must be a whole number of 1 or more');
-		}
-		const search = String(params.search ?? '').trim();
-		return { method: 'GET', endpoint: '/media', input: { qs: { page, ...(search ? { search } : {}) } } };
-	}
+	if (operation === 'getMany') return buildMediaListRequest(params, 1);
 	if (operation === 'delete') {
 		return {
 			method: 'DELETE',
@@ -81,7 +84,7 @@ function buildChannelRequest(node: INode, operation: string, params: IDataObject
 			return {
 				method: 'POST',
 				endpoint: `/integration-trigger/${encodedId(node, params, 'channelId', 'Channel')}`,
-				input: { body: { methodName, data } },
+				input: { body: { methodName, data }, timeout: SLOW_REQUEST_TIMEOUT_MS },
 			};
 		}
 		case 'findNextSlot':
@@ -180,6 +183,41 @@ export function shapeOtherOutput(
 	return [asObject(normalized)];
 }
 
+function mediaRows(response: unknown): unknown[] {
+	const normalized = normalizePostResponse(response);
+	if (Array.isArray(normalized)) return normalized;
+	const record = (normalized ?? {}) as Record<string, unknown>;
+	for (const key of MEDIA_LIST_KEYS) {
+		if (Array.isArray(record[key])) return record[key] as unknown[];
+	}
+	return [];
+}
+
+/**
+ * Media > Get Many. `GET /media?page=N` answers `{ pages, results }` with 18 files per page, counted
+ * from page 1. Pages are fetched until the limit is met (or all of them with Return All), never more
+ * than MAX_MEDIA_PAGES.
+ */
+export async function fetchMediaFiles(ctx: IExecuteFunctions, params: IDataObject): Promise<unknown[]> {
+	const node = ctx.getNode();
+	const returnAll = Boolean(params.returnAll);
+	const limit = has(params.limit) && params.limit !== '' ? Number(params.limit) : DEFAULT_MEDIA_LIMIT;
+	if (!returnAll && (!Number.isInteger(limit) || limit < 1)) {
+		throw new NodeOperationError(node, "'Limit' must be a whole number of 1 or more");
+	}
+	const files: unknown[] = [];
+	for (let page = 1; page <= MAX_MEDIA_PAGES; page++) {
+		const request = buildMediaListRequest(params, page);
+		const response = await postSiderApiRequest.call(ctx, request.method, request.endpoint, request.input);
+		const rows = mediaRows(response);
+		files.push(...rows);
+		const pages = Number((response as { pages?: unknown } | null | undefined)?.pages);
+		if (rows.length === 0 || !Number.isFinite(pages) || page >= pages) break;
+		if (!returnAll && files.length >= limit) break;
+	}
+	return returnAll ? files : files.slice(0, limit);
+}
+
 async function executeUpload(ctx: IExecuteFunctions, index: number): Promise<IDataObject[]> {
 	const node = ctx.getNode();
 	const api: ApiCall = (method, endpoint, input) =>
@@ -206,12 +244,23 @@ async function executeUpload(ctx: IExecuteFunctions, index: number): Promise<IDa
 function readParams(ctx: IExecuteFunctions, index: number, resource: string, operation: string): IDataObject {
 	const get = (name: string, fallback?: unknown) => ctx.getNodeParameter(name, index, fallback);
 	if (resource === 'media') {
-		if (operation === 'getMany') return { page: get('page', 1), search: get('search', '') } as IDataObject;
+		if (operation === 'getMany') {
+			const filters = get('mediaFilters', {}) as IDataObject;
+			return {
+				returnAll: get('returnAll', false),
+				limit: get('limit', DEFAULT_MEDIA_LIMIT),
+				search: filters.search ?? '',
+			} as IDataObject;
+		}
 		return { mediaId: get('mediaId', '') } as IDataObject;
 	}
 	if (resource === 'channel') {
 		if (operation === 'getMany') {
-			return { groupId: get('groupId', ''), includeDisabled: get('includeDisabled', false) } as IDataObject;
+			const filters = get('channelFilters', {}) as IDataObject;
+			return {
+				groupId: filters.groupId ?? '',
+				includeDisabled: filters.includeDisabled ?? false,
+			} as IDataObject;
 		}
 		if (operation === 'getOptions') {
 			return {
@@ -222,7 +271,10 @@ function readParams(ctx: IExecuteFunctions, index: number, resource: string, ope
 		}
 		return { channelId: get('channelId', ''), days: get('days', DEFAULT_ANALYTICS_DAYS) } as IDataObject;
 	}
-	if (resource === 'publishing') return { reason: get('reason', '') } as IDataObject;
+	if (resource === 'publishing') {
+		const extra = get('pauseAdditionalFields', {}) as IDataObject;
+		return { reason: extra.reason ?? '' } as IDataObject;
+	}
 	return {};
 }
 
@@ -240,6 +292,10 @@ export async function executeOtherOperation(
 		return shapeOtherOutput(resource, operation, response, params);
 	}
 	const params = readParams(ctx, index, resource, operation);
+	if (resource === 'media' && operation === 'getMany') {
+		const files = await fetchMediaFiles(ctx, params);
+		return shapeOtherOutput(resource, operation, files, params);
+	}
 	const request = buildOtherRequest(node, resource, operation, params, ctx.getExecutionId(), index);
 	const response = await postSiderApiRequest.call(ctx, request.method, request.endpoint, request.input);
 	return shapeOtherOutput(resource, operation, response, params);

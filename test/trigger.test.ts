@@ -90,7 +90,7 @@ const run = (ctx: any) => new PostSiderTrigger().poll.call(ctx);
 
 test('poll seeds on first active run, then emits a newly published post', async () => {
 	const staticData: Record<string, unknown> = {};
-	const params = { events: ['published'], channels: [] };
+	const params = { events: ['published'], options: {} };
 	const first = fake('trigger', params, staticData, [post('1', 'QUEUE')]);
 	assert.equal(await run(first.ctx), null);
 	assert.deepEqual(staticData.seen, ['1:QUEUE']);
@@ -107,7 +107,7 @@ test('poll seeds on first active run, then emits a newly published post', async 
 
 test('manual mode returns newest match and leaves static data untouched', async () => {
 	const staticData: Record<string, unknown> = {};
-	const params = { events: ['published'], channels: [] };
+	const params = { events: ['published'], options: {} };
 	const rows = [
 		post('1', 'PUBLISHED', 'c1', '2026-11-09T10:00:00.000Z'),
 		post('2', 'PUBLISHED', 'c1', '2026-11-10T10:00:00.000Z'),

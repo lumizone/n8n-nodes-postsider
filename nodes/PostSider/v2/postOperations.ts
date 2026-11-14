@@ -7,7 +7,7 @@ import {
 	simplifyPostResponse,
 	type OperationRequest,
 } from '../shared/operations';
-import { postSiderApiRequest } from '../shared/transport';
+import { postSiderApiRequest, SLOW_REQUEST_TIMEOUT_MS } from '../shared/transport';
 import { parseIdList, parseMediaJson, parseUrlList } from './inputs';
 import { uploadBinaries, uploadFromUrls, type ApiCall } from './media';
 import { buildChannelSettings, type PlatformSettingsInput } from './platformSettings';
@@ -16,6 +16,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_LIMIT = 50;
 const CONTENT_MAX = 4000;
 const CHECK_PLATFORMS_MAX = 3;
+const CHECK_MEDIA_TYPES = ['image', 'mixed', 'none', 'video'];
 const DEFAULT_ANALYTICS_DAYS = 7;
 
 function has(value: unknown): boolean {
@@ -94,11 +95,16 @@ function buildCheckBody(node: INode, params: IDataObject): IDataObject {
 	if (platforms.length > CHECK_PLATFORMS_MAX) {
 		throw new NodeOperationError(node, `Choose at most ${CHECK_PLATFORMS_MAX} platforms to check against`);
 	}
-	const hasMedia = Boolean(params.hasMedia);
+	const mediaType = String(params.mediaType ?? 'none');
+	if (!CHECK_MEDIA_TYPES.includes(mediaType)) {
+		throw new NodeOperationError(node, "'Media Type' must be Image, Mixed, None or Video");
+	}
+	// The backend takes a hasMedia flag and an optional mediaType (image, video, mixed).
+	const hasMedia = mediaType !== 'none';
 	return {
 		content,
 		hasMedia,
-		...(hasMedia && params.mediaType ? { mediaType: String(params.mediaType) } : {}),
+		...(hasMedia ? { mediaType } : {}),
 		platforms,
 	};
 }
@@ -179,9 +185,17 @@ export function buildPostRequest(
 				input: { body: {} },
 			};
 		case 'check':
-			return { method: 'POST', endpoint: '/posts/check', input: { body: buildCheckBody(node, params) } };
+			return {
+				method: 'POST',
+				endpoint: '/posts/check',
+				input: { body: buildCheckBody(node, params), timeout: SLOW_REQUEST_TIMEOUT_MS },
+			};
 		case 'rewrite':
-			return { method: 'POST', endpoint: '/posts/rewrite', input: { body: buildRewriteBody(node, params) } };
+			return {
+				method: 'POST',
+				endpoint: '/posts/rewrite',
+				input: { body: buildRewriteBody(node, params), timeout: SLOW_REQUEST_TIMEOUT_MS },
+			};
 		case 'getAnalytics': {
 			const days = has(params.days) ? Number(params.days) : DEFAULT_ANALYTICS_DAYS;
 			if (!Number.isFinite(days) || days < 1) {
@@ -315,12 +329,13 @@ export async function executePostOperation(
 		case 'retryFailed':
 			params.postGroup = get('postGroup', '');
 			break;
-		case 'check':
+		case 'check': {
+			const options = get('checkOptions', {}) as IDataObject;
 			params.text = get('text', '');
-			params.hasMedia = get('hasMedia', false);
-			params.mediaType = get('mediaType', 'image');
+			params.mediaType = options.mediaType ?? 'none';
 			params.platforms = get('platforms', []);
 			break;
+		}
 		case 'rewrite': {
 			const options = get('rewriteOptions', {}) as IDataObject;
 			params.text = get('text', '');

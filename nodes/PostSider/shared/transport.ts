@@ -15,11 +15,16 @@ export interface RequestInput {
 	body?: IDataObject | IDataObject[];
 	/** Multipart body; sent as-is so the runtime sets the boundary header. */
 	formData?: FormData;
-	/** Overrides the default 30 s timeout (used by large uploads). */
+	/** Overrides the default 30 s timeout (large uploads, Post Check, Post Rewrite, Channel Get Options). */
 	timeout?: number;
 	qs?: IDataObject;
 	headers?: IDataObject;
 }
+
+/** Default request timeout. */
+export const DEFAULT_TIMEOUT_MS = 30000;
+/** Post Check, Post Rewrite and Channel Get Options call AI or platform APIs and can take much longer. */
+export const SLOW_REQUEST_TIMEOUT_MS = 120000;
 
 function isLoopback(hostname: string): boolean {
 	return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]';
@@ -62,7 +67,7 @@ export function buildRequestOptions(
 		...(input.qs ? { qs: input.qs } : {}),
 		...(input.headers ? { headers: input.headers } : {}),
 		...(input.formData ? {} : { json: true }),
-		timeout: input.timeout ?? 30000,
+		timeout: input.timeout ?? DEFAULT_TIMEOUT_MS,
 		disableFollowRedirect: true,
 		sendCredentialsOnCrossOriginRedirect: false,
 	};

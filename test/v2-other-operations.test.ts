@@ -7,19 +7,19 @@ import type { IDataObject } from 'n8n-workflow';
 import { buildOperationRequest } from '../nodes/PostSider/shared/operations';
 import { v2Properties } from '../nodes/PostSider/v2/descriptions';
 import { executeV2 } from '../nodes/PostSider/v2/execute';
-import { buildOtherRequest, shapeOtherOutput } from '../nodes/PostSider/v2/otherOperations';
+import { buildMediaListRequest, buildOtherRequest, shapeOtherOutput } from '../nodes/PostSider/v2/otherOperations';
 import { testNode } from './helpers';
 
 const build = (resource: string, operation: string, params: Record<string, unknown> = {}) =>
 	buildOtherRequest(testNode, resource, operation, params as any, 'ex1', 0);
 
-test('media getMany lists page 1 by default and sends the search term', () => {
+test('media getMany requests page 1 and sends the search term only when set', () => {
 	const r = build('media', 'getMany', {});
 	assert.equal(r.method, 'GET');
 	assert.equal(r.endpoint, '/media');
 	assert.deepEqual(r.input.qs, { page: 1 });
-	assert.deepEqual(build('media', 'getMany', { page: 3, search: ' logo ' }).input.qs, { page: 3, search: 'logo' });
-	assert.throws(() => build('media', 'getMany', { page: 0 }), /Page/);
+	assert.deepEqual(build('media', 'getMany', { search: ' logo ' }).input.qs, { page: 1, search: 'logo' });
+	assert.deepEqual(buildMediaListRequest({ search: ' logo ' }, 3).input.qs, { page: 3, search: 'logo' });
 });
 
 test('media delete encodes the id', () => {
@@ -113,19 +113,20 @@ test('v2 declares the fields of every other resource for version 2 only', () => 
 			.map((p) => p.name);
 	assert.ok(names('media', 'upload').includes('uploadSource'));
 	assert.ok(names('media', 'delete').includes('mediaId'));
-	assert.deepEqual(names('media', 'getMany').sort(), ['page', 'search']);
-	assert.deepEqual(names('channel', 'getMany').sort(), ['groupId', 'includeDisabled']);
+	assert.deepEqual(names('media', 'getMany').sort(), ['limit', 'mediaFilters', 'returnAll']);
+	assert.deepEqual(names('channel', 'getMany'), ['channelFilters']);
 	for (const op of ['getRules', 'findNextSlot', 'enable', 'disable']) {
 		assert.deepEqual(names('channel', op), ['channelId'], op);
 	}
 	assert.deepEqual(names('channel', 'getAnalytics').sort(), ['channelId', 'days']);
-	assert.deepEqual(names('publishing', 'pause'), ['reason']);
+	assert.deepEqual(names('publishing', 'pause'), ['pauseAdditionalFields']);
 	assert.deepEqual(names('approval', 'approve').sort(), ['approvalAdditionalFields', 'approvalId']);
 	assert.deepEqual(names('approval', 'request'), ['postId']);
 	assert.deepEqual(names('approval', 'getMany').sort(), ['approvalFilters', 'limit', 'returnAll']);
 	assert.deepEqual(names('group', 'update').sort(), ['groupName', 'targetGroupId']);
 	assert.deepEqual(names('policy', 'check').sort(), ['policyChannelPosts', 'policyPublishDate', 'policyType']);
-	const groupId = v2Properties.find((p) => p.name === 'groupId');
+	const channelFilters = v2Properties.find((p) => p.name === 'channelFilters');
+	const groupId = (channelFilters?.options as any[]).find((o) => o.name === 'groupId');
 	assert.equal(groupId?.typeOptions?.loadOptionsMethod, 'getGroups');
 });
 
@@ -178,7 +179,7 @@ test('executor: media upload from binary uses upload-base64', async () => {
 
 test('executor: channel getMany filters disabled channels client side', async () => {
 	const { context, requests } = makeContext(
-		{ resource: 'channel', operation: 'getMany', groupId: 'g1' },
+		{ resource: 'channel', operation: 'getMany', channelFilters: { groupId: 'g1' } },
 		[[{ id: 'a' }, { id: 'b', disabled: true }]],
 	);
 	const out = await executeV2.call(context);
@@ -235,7 +236,7 @@ test('v2 approval optional fields live in collections, never at the top level', 
 
 test('executor: publishing pause posts the reason', async () => {
 	const { context, requests } = makeContext(
-		{ resource: 'publishing', operation: 'pause', reason: 'incident' },
+		{ resource: 'publishing', operation: 'pause', pauseAdditionalFields: { reason: 'incident' } },
 		[{ state: 'PAUSED' }],
 	);
 	const out = await executeV2.call(context);

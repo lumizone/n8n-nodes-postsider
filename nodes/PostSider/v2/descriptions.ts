@@ -56,7 +56,7 @@ const operationProperties: INodeProperties[] = [
 				name: 'Get Many',
 				value: 'getMany',
 				action: 'Get many approvals',
-				description: 'List approval requests, newest first',
+				description: 'List approval requests, newest first. Return All fetches up to 1,000 approvals.',
 			},
 			{
 				name: 'Get Status',
@@ -172,7 +172,7 @@ const operationProperties: INodeProperties[] = [
 				name: 'Get Many',
 				value: 'getMany',
 				action: 'Get many media files',
-				description: 'List files in the media library',
+				description: 'List files in the media library. Return All fetches up to 900 files.',
 			},
 			{
 				name: 'Upload',
@@ -994,25 +994,27 @@ const postOperationFields: INodeProperties[] = [
 		displayOptions: { show: postOp('check') },
 	},
 	{
-		displayName: 'Has Media',
-		name: 'hasMedia',
-		type: 'boolean',
-		default: false,
-		description: 'Whether the post will include an image or a video',
+		displayName: 'Options',
+		name: 'checkOptions',
+		type: 'collection',
+		placeholder: 'Add Option',
+		default: {},
 		displayOptions: { show: postOp('check') },
-	},
-	{
-		displayName: 'Media Type',
-		name: 'mediaType',
-		type: 'options',
 		options: [
-			{ name: 'Image', value: 'image' },
-			{ name: 'Mixed', value: 'mixed' },
-			{ name: 'Video', value: 'video' },
+			{
+				displayName: 'Media Type',
+				name: 'mediaType',
+				type: 'options',
+				options: [
+					{ name: 'Image', value: 'image' },
+					{ name: 'Mixed', value: 'mixed' },
+					{ name: 'None', value: 'none' },
+					{ name: 'Video', value: 'video' },
+				],
+				default: 'none',
+				description: 'Kind of media the post will include. None means the post has no media.',
+			},
 		],
-		default: 'image',
-		description: 'Kind of media the post will include',
-		displayOptions: { show: { ...postOp('check'), hasMedia: [true] } },
 	},
 	{
 		displayName: 'Text',
@@ -1075,9 +1077,15 @@ const show = (resource: string, ...operations: string[]) => ({ ...V2, resource: 
 const CONTROL_RESOURCES = ['approval', 'group', 'policy', 'channel'];
 /** Optional version 1 fields that version 2 shows inside a Filters or Additional Fields collection instead. */
 const V1_ONLY_FIELDS = new Set(['approvalStatus', 'since', 'note']);
+const isV1OnlyField = (property: INodeProperties): boolean => {
+	if (V1_ONLY_FIELDS.has(property.name)) return true;
+	const resources = (property.displayOptions?.show?.resource ?? []) as string[];
+	// The Channel > Get Many group filter lives in the 'Filters' collection in version 2.
+	return property.name === 'groupId' && resources.includes('channel');
+};
 const controlFields: INodeProperties[] = v1Fields
 	.filter((property) => {
-		if (V1_ONLY_FIELDS.has(property.name)) return false;
+		if (isV1OnlyField(property)) return false;
 		const resources = (property.displayOptions?.show?.resource ?? []) as string[];
 		return resources.length > 0 && resources.every((resource) => CONTROL_RESOURCES.includes(resource));
 	})
@@ -1184,29 +1192,64 @@ const otherFields: INodeProperties[] = [
 		displayOptions: { show: show('media', 'delete') },
 	},
 	{
-		displayName: 'Page',
-		name: 'page',
-		type: 'number',
-		typeOptions: { minValue: 1 },
-		default: 1,
-		description: 'Page of the media library to return (18 files per page)',
-		displayOptions: { show: show('media', 'getMany') },
-	},
-	{
-		displayName: 'Search',
-		name: 'search',
-		type: 'string',
-		default: '',
-		description: 'Only return files whose name contains this text',
-		displayOptions: { show: show('media', 'getMany') },
-	},
-	{
-		displayName: 'Include Disabled',
-		name: 'includeDisabled',
+		displayName: 'Return All',
+		name: 'returnAll',
 		type: 'boolean',
 		default: false,
-		description: 'Whether to also return channels that are disabled',
+		description: 'Whether to return all results or only up to a given limit',
+		displayOptions: { show: show('media', 'getMany') },
+	},
+	{
+		displayName: 'Limit',
+		name: 'limit',
+		type: 'number',
+		typeOptions: { minValue: 1 },
+		default: 50,
+		description: 'Max number of results to return',
+		displayOptions: { show: { ...show('media', 'getMany'), returnAll: [false] } },
+	},
+	{
+		displayName: 'Filters',
+		name: 'mediaFilters',
+		type: 'collection',
+		placeholder: 'Add Filter',
+		default: {},
+		displayOptions: { show: show('media', 'getMany') },
+		options: [
+			{
+				displayName: 'Search',
+				name: 'search',
+				type: 'string',
+				default: '',
+				description: 'Only return files whose name contains this text',
+			},
+		],
+	},
+	{
+		displayName: 'Filters',
+		name: 'channelFilters',
+		type: 'collection',
+		placeholder: 'Add Filter',
+		default: {},
 		displayOptions: { show: show('channel', 'getMany') },
+		options: [
+			{
+				displayName: 'Group Name or ID',
+				name: 'groupId',
+				type: 'options',
+				typeOptions: { loadOptionsMethod: 'getGroups' },
+				default: '',
+				description:
+					'Only return channels of this group. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
+			},
+			{
+				displayName: 'Include Disabled',
+				name: 'includeDisabled',
+				type: 'boolean',
+				default: false,
+				description: 'Whether to also return channels that are disabled',
+			},
+		],
 	},
 	{
 		displayName: 'Channel Name or ID',
@@ -1274,13 +1317,22 @@ const otherFields: INodeProperties[] = [
 		displayOptions: { show: show('channel', 'getAnalytics') },
 	},
 	{
-		displayName: 'Reason',
-		name: 'reason',
-		type: 'string',
-		default: '',
-		description:
-			'Why publishing is paused. Publishing can only be resumed in the PostSider dashboard, not from n8n.',
+		displayName: 'Additional Fields',
+		name: 'pauseAdditionalFields',
+		type: 'collection',
+		placeholder: 'Add Field',
+		default: {},
 		displayOptions: { show: show('publishing', 'pause') },
+		options: [
+			{
+				displayName: 'Reason',
+				name: 'reason',
+				type: 'string',
+				default: '',
+				description:
+					'Why publishing is paused. Publishing can only be resumed in the PostSider dashboard, not from n8n.',
+			},
+		],
 	},
 ];
 

@@ -30,25 +30,34 @@ export class PostSiderTrigger implements INodeType {
 		credentials: [{ name: 'postSiderApi', required: true }],
 		properties: [
 			{
-				displayName: 'Events',
+				displayName: 'Trigger On',
 				name: 'events',
 				type: 'multiOptions',
+				required: true,
 				options: [
 					{ name: 'Post Failed', value: 'failed' },
 					{ name: 'Post Published', value: 'published' },
 					{ name: 'Post Scheduled', value: 'scheduled' },
 				],
 				default: ['published'],
-				description: 'Which post events start the workflow',
 			},
 			{
-				displayName: 'Channel Names or IDs',
-				name: 'channels',
-				type: 'multiOptions',
-				typeOptions: { loadOptionsMethod: 'getChannels' },
-				default: [],
-				description:
-					'Only trigger for these channels. Leave empty for all channels. Choose from the list, or specify IDs using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
+				displayName: 'Options',
+				name: 'options',
+				type: 'collection',
+				placeholder: 'Add Option',
+				default: {},
+				options: [
+					{
+						displayName: 'Channel Names or IDs',
+						name: 'channels',
+						type: 'multiOptions',
+						typeOptions: { loadOptionsMethod: 'getChannels' },
+						default: [],
+						description:
+							'Only trigger for these channels. Leave empty for all channels. Choose from the list, or specify IDs using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
+					},
+				],
 			},
 		],
 	};
@@ -57,7 +66,8 @@ export class PostSiderTrigger implements INodeType {
 
 	async poll(this: IPollFunctions): Promise<INodeExecutionData[][] | null> {
 		const events = this.getNodeParameter('events', []) as string[];
-		const channels = this.getNodeParameter('channels', []) as string[];
+		const options = this.getNodeParameter('options', {}) as IDataObject;
+		const channels = (options.channels ?? []) as string[];
 		const staticData = this.getWorkflowStaticData('node') as IDataObject;
 		const manual = this.getMode() === 'manual';
 		const now = new Date();

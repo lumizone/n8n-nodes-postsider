@@ -20,6 +20,8 @@ export interface OperationRequest {
 		body?: IDataObject | IDataObject[];
 		qs?: IDataObject;
 		headers?: IDataObject;
+		/** Overrides the default request timeout in milliseconds. */
+		timeout?: number;
 	};
 }
 
