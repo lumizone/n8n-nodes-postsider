@@ -1,9 +1,6 @@
 import type { INodeProperties } from 'n8n-workflow';
 
-import { fieldProperties as v1Fields } from '../resources/descriptions';
-
 const V2 = { '@version': [2] };
-const SERVER_NOTE = 'Requires PostSider server 2026-11 or newer. ';
 
 type OperationOption = { name: string; value: string; action: string; description: string };
 
@@ -21,9 +18,6 @@ const operation = (
 	default: defaultValue,
 });
 
-const gated = (options: OperationOption[]): OperationOption[] =>
-	options.map((option) => ({ ...option, description: SERVER_NOTE + option.description }));
-
 const resourceProperty: INodeProperties = {
 	displayName: 'Resource',
 	name: 'resource',
@@ -35,7 +29,6 @@ const resourceProperty: INodeProperties = {
 		{ name: 'Channel', value: 'channel' },
 		{ name: 'Group', value: 'group' },
 		{ name: 'Media', value: 'media' },
-		{ name: 'Policy', value: 'policy' },
 		{ name: 'Post', value: 'post' },
 		{ name: 'Publishing', value: 'publishing' },
 	],
@@ -45,19 +38,7 @@ const resourceProperty: INodeProperties = {
 const operationProperties: INodeProperties[] = [
 	operation(
 		'approval',
-		gated([
-			{
-				name: 'Approve',
-				value: 'approve',
-				action: 'Approve approval request',
-				description: 'Approve a pending approval. Needs an API key with the approvals:decide scope.',
-			},
-			{
-				name: 'Get Many',
-				value: 'getMany',
-				action: 'Get many approvals',
-				description: 'List approval requests, newest first. Return All fetches up to 1,000 approvals.',
-			},
+		[
 			{
 				name: 'Get Status',
 				value: 'getStatus',
@@ -65,18 +46,12 @@ const operationProperties: INodeProperties[] = [
 				description: 'Retrieve the human approval state for a post',
 			},
 			{
-				name: 'Reject',
-				value: 'reject',
-				action: 'Reject approval request',
-				description: 'Reject a pending approval. Needs an API key with the approvals:decide scope.',
-			},
-			{
 				name: 'Request',
 				value: 'request',
 				action: 'Request approval for post',
 				description: 'Ask the approvers to review a post',
 			},
-		]),
+		],
 		'getStatus',
 	),
 	operation(
@@ -117,7 +92,7 @@ const operationProperties: INodeProperties[] = [
 				value: 'getOptions',
 				action: 'Get options from channel platform',
 				description:
-					"List values such as Pinterest boards or Discord and Slack channels, to use in platform settings or 'Settings JSON'. Needs the channels:write scope.",
+					"List values such as Pinterest boards or Discord and Slack channels, to use in platform settings or 'Settings JSON'",
 			},
 			{
 				name: 'Get Rules',
@@ -131,32 +106,14 @@ const operationProperties: INodeProperties[] = [
 	),
 	operation(
 		'group',
-		gated([
-			{
-				name: 'Archive',
-				value: 'archive',
-				action: 'Archive group',
-				description: 'Archive a group (customer workspace). Nothing is deleted.',
-			},
-			{
-				name: 'Create',
-				value: 'create',
-				action: 'Create group',
-				description: 'Create a group (customer workspace)',
-			},
+		[
 			{
 				name: 'Get Many',
 				value: 'getMany',
 				action: 'Get many groups',
 				description: 'Retrieve channel groups',
 			},
-			{
-				name: 'Rename',
-				value: 'update',
-				action: 'Rename group',
-				description: 'Change the name of a group',
-			},
-		]),
+		],
 		'getMany',
 	),
 	operation(
@@ -184,24 +141,6 @@ const operationProperties: INodeProperties[] = [
 		'upload',
 	),
 	operation(
-		'policy',
-		gated([
-			{
-				name: 'Check',
-				value: 'check',
-				action: 'Check post against policies',
-				description: 'Dry run: report which rules a post would hit, without creating it',
-			},
-			{
-				name: 'Get Many Rules',
-				value: 'getMany',
-				action: 'Get many policy rules',
-				description: 'List the publishing policy rules. Needs the policies:read scope.',
-			},
-		]),
-		'check',
-	),
-	operation(
 		'post',
 		[
 			{
@@ -216,7 +155,7 @@ const operationProperties: INodeProperties[] = [
 				value: 'check',
 				action: 'Check post before publishing',
 				description:
-					'Validate post text against channel rules without creating the post. Needs the posts:write scope. Fails with 409 when no AI key is configured and 402 when the AI quota is used up.',
+					'Validate post text against channel rules without creating the post. Fails with 409 when no AI key is configured and 402 when the AI quota is used up.',
 			},
 			{
 				name: 'Delete',
@@ -261,14 +200,14 @@ const operationProperties: INodeProperties[] = [
 				value: 'retryFailed',
 				action: 'Retry failed post',
 				description:
-					SERVER_NOTE + 'Republish a post that failed, instead of creating a duplicate',
+					'Retry a post in the Error state on its channel, instead of creating a duplicate. The channel must be connected and publishing must not be paused.',
 			},
 			{
 				name: 'Rewrite',
 				value: 'rewrite',
 				action: 'Rewrite post for channel',
 				description:
-					'Rewrite post text to fit the rules and style of a channel. Needs the posts:write scope. Fails with 409 when no AI key is configured and 402 when the AI quota is used up.',
+					'Rewrite post text to fit the rules and style of a channel. Fails with 409 when no AI key is configured and 402 when the AI quota is used up.',
 			},
 			{
 				name: 'Update',
@@ -743,6 +682,10 @@ const postOperationFields: INodeProperties[] = [
 	postIdField('ID of the post to copy. The copy is saved as a draft.', ['duplicate']),
 	postIdField('ID of the published post to read analytics for', ['getAnalytics']),
 	postIdField('ID of the post to move between draft and queue', ['changeStatus']),
+	postIdField(
+		'ID of the post to retry. Only a post in the Error state can be retried. Its channel must be connected and publishing must not be paused.',
+		['retryFailed'],
+	),
 	{
 		displayName: 'Status',
 		name: 'status',
@@ -755,16 +698,6 @@ const postOperationFields: INodeProperties[] = [
 		description:
 			"'Schedule' queues a draft for its saved date. 'Draft' takes a queued post out of the queue. The response may include the policy result and whether approval was requested.",
 		displayOptions: { show: postOp('changeStatus') },
-	},
-	{
-		displayName: 'Post Group ID',
-		name: 'postGroup',
-		type: 'string',
-		required: true,
-		default: '',
-		description:
-			"ID of the post group (the posts created together for several channels), as returned by 'Get' or 'Get Many'. All failed channels of the group are queued again.",
-		displayOptions: { show: postOp('retryFailed') },
 	},
 	{
 		displayName: 'Date Range',
@@ -1075,91 +1008,7 @@ const postOperationFields: INodeProperties[] = [
 
 const show = (resource: string, ...operations: string[]) => ({ ...V2, resource: [resource], operation: operations });
 
-/**
- * Approval, Group and Policy keep the version 1 fields with the same names, so both versions read them
- * with the same code. They are taken from the version 1 list and re-shown for version 2.
- */
-const CONTROL_RESOURCES = ['approval', 'group', 'policy', 'channel'];
-/** Optional version 1 fields that version 2 shows inside a Filters or Additional Fields collection instead. */
-const V1_ONLY_FIELDS = new Set(['approvalStatus', 'since', 'note', 'targetGroupId']);
-const isV1OnlyField = (property: INodeProperties): boolean => {
-	if (V1_ONLY_FIELDS.has(property.name)) return true;
-	const resources = (property.displayOptions?.show?.resource ?? []) as string[];
-	// The Channel > Get Many group filter lives in the 'Filters' collection in version 2.
-	return property.name === 'groupId' && resources.includes('channel');
-};
-/** Version 2 picks the group to rename or archive from a list; version 1 keeps the text field. */
-const targetGroupField: INodeProperties = {
-	displayName: 'Group Name or ID',
-	name: 'targetGroupId',
-	type: 'options',
-	typeOptions: { loadOptionsMethod: 'getGroupChoices' },
-	required: true,
-	default: '',
-	description:
-		'Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>',
-	displayOptions: { show: { ...V2, resource: ['group'], operation: ['update', 'archive'] } },
-};
-const controlFields: INodeProperties[] = v1Fields
-	.filter((property) => {
-		if (isV1OnlyField(property)) return false;
-		const resources = (property.displayOptions?.show?.resource ?? []) as string[];
-		return resources.length > 0 && resources.every((resource) => CONTROL_RESOURCES.includes(resource));
-	})
-	.map((property) => ({
-		...property,
-		displayOptions: { ...property.displayOptions, show: { ...property.displayOptions?.show, ...V2 } },
-	}));
-
 const otherFields: INodeProperties[] = [
-	{
-		displayName: 'Filters',
-		name: 'approvalFilters',
-		type: 'collection',
-		placeholder: 'Add Filter',
-		default: {},
-		displayOptions: { show: show('approval', 'getMany') },
-		options: [
-			{
-				displayName: 'Requested Since',
-				name: 'since',
-				type: 'dateTime',
-				default: '',
-				description:
-					'Only return approvals requested at or after this time (UTC when no time zone is given)',
-			},
-			{
-				displayName: 'Status',
-				name: 'status',
-				type: 'options',
-				options: [
-					{ name: 'Approved', value: 'APPROVED' },
-					{ name: 'Pending', value: 'PENDING' },
-					{ name: 'Rejected', value: 'REJECTED' },
-				],
-				default: 'PENDING',
-				description: 'Only return approvals with this status',
-			},
-		],
-	},
-	{
-		displayName: 'Additional Fields',
-		name: 'approvalAdditionalFields',
-		type: 'collection',
-		placeholder: 'Add Field',
-		default: {},
-		displayOptions: { show: show('approval', 'approve', 'reject') },
-		options: [
-			{
-				displayName: 'Note',
-				name: 'note',
-				type: 'string',
-				typeOptions: { rows: 2 },
-				default: '',
-				description: 'Note stored with the decision (up to 500 characters)',
-			},
-		],
-	},
 	{
 		displayName: 'Post ID',
 		name: 'postId',
@@ -1359,7 +1208,5 @@ export const v2Properties: INodeProperties[] = [
 	...operationProperties,
 	...publishFields,
 	...postOperationFields,
-	targetGroupField,
-	...controlFields,
 	...otherFields,
 ];

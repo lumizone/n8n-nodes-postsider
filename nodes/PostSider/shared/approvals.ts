@@ -13,7 +13,7 @@ import { postSiderApiRequest } from './transport';
 
 /**
  * Reads the parameters of the control-plane resources (approval, group, policy, channel group filter).
- * Version 1 and version 2 declare these fields with the same names, so both read them here.
+ * Version 1 declares all of them; version 2 only uses the approval post ID and the group list.
  */
 export function readControlParameters(
 	context: IExecuteFunctions,
@@ -25,8 +25,7 @@ export function readControlParameters(
 	if (resource === 'channel') return { groupId: get('groupId', '') } as IDataObject;
 	if (resource === 'group') {
 		if (operation === 'create') return { groupName: get('groupName') } as IDataObject;
-		// Version 2 shows the group as 'Group Name or ID'; the error message uses the name on screen.
-		const groupField = context.getNode().typeVersion >= 2 ? 'Group Name or ID' : 'Group ID';
+		const groupField = 'Group ID';
 		if (operation === 'update') {
 			return {
 				targetGroupId: get('targetGroupId'),
@@ -46,22 +45,18 @@ export function readControlParameters(
 		} as IDataObject;
 	}
 	if (resource === 'approval') {
-		// Version 2 keeps the optional fields in collections; version 1 keeps them at the top level.
-		const v2 = context.getNode().typeVersion >= 2;
 		if (operation === 'getMany') {
-			const filters = (v2 ? get('approvalFilters', {}) : {}) as IDataObject;
 			return {
-				status: v2 ? (filters.status ?? '') : get('approvalStatus', ''),
-				since: v2 ? (filters.since ?? '') : get('since', ''),
+				status: get('approvalStatus', ''),
+				since: get('since', ''),
 				returnAll: get('returnAll', false),
 				limit: get('limit', 50),
 			} as IDataObject;
 		}
 		if (operation === 'approve' || operation === 'reject') {
-			const extra = (v2 ? get('approvalAdditionalFields', {}) : {}) as IDataObject;
 			return {
 				approvalId: get('approvalId'),
-				note: v2 ? (extra.note ?? '') : get('note', ''),
+				note: get('note', ''),
 			} as IDataObject;
 		}
 		return { postId: get('postId') } as IDataObject;

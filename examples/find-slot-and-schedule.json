@@ -3,7 +3,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Next free slot\nSet **Channel Names or IDs** in the PostSider node and run the workflow. When is set to **Next Free Slot**, so the node looks up the next free queue slot of the first selected channel and schedules the post there. Nothing is published right now.\n\nThe API key needs the scopes `posts:write`, `posts:read` and `channels:read`.",
+        "content": "## Next free slot\nSet **Channel Names or IDs** in the PostSider node and run the workflow. When is set to **Next Free Slot**, so the node looks up the next free queue slot of the first selected channel and schedules the post there. Nothing is published right now.",
         "height": 200,
         "width": 420
       },

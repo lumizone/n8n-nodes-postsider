@@ -7,9 +7,9 @@ import type { INodeProperties } from 'n8n-workflow';
 import { PostSider } from '../nodes/PostSider/PostSider.node.ts';
 import { fieldProperties, operationProperties, resourceProperty } from '../nodes/PostSider/resources/descriptions.ts';
 import { v2Properties } from '../nodes/PostSider/v2/descriptions.ts';
+import { V2_OPERATIONS } from '../nodes/PostSider/v2/execute.ts';
 
 const { description } = new PostSider();
-const SERVER_NOTE = 'Requires PostSider server 2026-11 or newer. ';
 
 const v2Operation = (resource: string) =>
 	v2Properties.find(
@@ -63,7 +63,6 @@ test('v2 resources and operations match the reviewed surface', () => {
 		'channel',
 		'group',
 		'media',
-		'policy',
 		'post',
 		'publishing',
 	]);
@@ -91,15 +90,42 @@ test('v2 resources and operations match the reviewed surface', () => {
 		'getRules',
 	]);
 	assert.deepEqual(optionValues(v2Operation('publishing')), ['getState', 'pause']);
-	assert.deepEqual(optionValues(v2Operation('approval')), [
-		'approve',
-		'getMany',
-		'getStatus',
-		'reject',
-		'request',
-	]);
-	assert.deepEqual(optionValues(v2Operation('policy')), ['check', 'getMany']);
-	assert.deepEqual(optionValues(v2Operation('group')), ['archive', 'create', 'getMany', 'update']);
+	assert.deepEqual(optionValues(v2Operation('approval')), ['getStatus', 'request']);
+	assert.deepEqual(optionValues(v2Operation('group')), ['getMany']);
+	assert.equal(v2Operation('policy'), undefined);
+});
+
+test('the executor allows exactly the operations the description lists', () => {
+	const resources = optionValues(v2Properties[0]).map(String);
+	assert.deepEqual(Object.keys(V2_OPERATIONS).sort(), [...resources].sort());
+	for (const resource of resources) {
+		assert.deepEqual([...V2_OPERATIONS[resource]].sort(), optionValues(v2Operation(resource)).map(String).sort(), resource);
+	}
+});
+
+test('no v2 field is shown for a resource or operation that version 2 does not offer', () => {
+	for (const property of v2Properties) {
+		if (property.name === 'resource' || property.name === 'operation') continue;
+		const show = (property.displayOptions?.show ?? {}) as Record<string, string[]>;
+		for (const resource of show.resource ?? []) {
+			assert.ok(resource in V2_OPERATIONS, `${property.name}: resource ${resource}`);
+			for (const operation of show.operation ?? []) {
+				assert.ok(V2_OPERATIONS[resource].includes(operation), `${property.name}: ${resource} > ${operation}`);
+			}
+		}
+	}
+	const names = new Set(v2Properties.map((property) => property.name));
+	for (const removed of ['approvalFilters', 'approvalAdditionalFields', 'approvalId', 'postGroup', 'groupName', 'targetGroupId', 'policyType', 'policyPublishDate', 'policyChannelPosts', 'approvalStatus', 'since', 'note']) {
+		assert.equal(names.has(removed), false, removed);
+	}
+});
+
+test('version 2 descriptions do not mention a server version or scopes that production does not have', () => {
+	const text = JSON.stringify(v2Properties);
+	assert.doesNotMatch(text, /Requires PostSider server/);
+	assert.doesNotMatch(text, /2026-11/);
+	assert.doesNotMatch(text, /:(?:decide|read|write)\b/);
+	assert.doesNotMatch(text, /scope/i);
 });
 
 test('v2 post resource defaults to publish and publish defaults to now', () => {
@@ -170,29 +196,6 @@ test('publish options collection carries the optional fields', () => {
 		(tag.values as INodeProperties[]).map((value) => value.name).sort(),
 		['label', 'value'],
 	);
-});
-
-test('control-plane operations carry the server prefix', () => {
-	const gated: Array<[string, string[] | null]> = [
-		['approval', null],
-		['policy', null],
-		['group', null],
-		['post', ['retryFailed']],
-	];
-	for (const [resource, only] of gated) {
-		for (const option of v2Operation(resource).options ?? []) {
-			if (!('value' in option)) continue;
-			if (only && !only.includes(String(option.value))) continue;
-			assert.ok(
-				String(option.description).startsWith(SERVER_NOTE),
-				`${resource}.${String(option.value)}`,
-			);
-		}
-	}
-	const publish = (v2Operation('post').options ?? []).find(
-		(option) => 'value' in option && option.value === 'publish',
-	);
-	assert.equal(String(publish?.description).startsWith(SERVER_NOTE), false);
 });
 
 test('every v2 operation has an action and a description', () => {

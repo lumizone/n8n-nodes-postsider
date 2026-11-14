@@ -50,7 +50,7 @@ test('C17. operation actions carry no articles in version 1 or version 2', () =>
 	const action = (resource: string, value: string) =>
 		(findV2('operation', resource).options as any[]).find((o) => o.value === value).action;
 	assert.equal(action('post', 'get'), 'Get post');
-	assert.equal(action('approval', 'approve'), 'Approve approval request');
+	assert.equal(action('approval', 'request'), 'Request approval for post');
 	assert.equal(action('channel', 'findNextSlot'), 'Find next free queue slot for channel');
 	assert.equal(action('channel', 'getOptions'), 'Get options from channel platform');
 });
@@ -111,14 +111,18 @@ test('C20. every options list in version 2, the trigger and the credential is so
 
 // ---- C21 ----
 
-test('C21. Retry Failed asks for the Post Group ID', async () => {
-	const field = findV2('postGroup');
-	assert.equal(field.displayName, 'Post Group ID');
-	assert.match(field.description, /post group/);
-	assert.match(field.description, /'Get' or 'Get Many'/);
-	assert.doesNotMatch(field.description, /Group resource/);
+test('C21. Retry Failed asks for the Post ID of a post in the Error state', async () => {
+	const field = v2Properties.find(
+		(p) => p.name === 'postId' && (p.displayOptions?.show?.operation as string[]).includes('retryFailed'),
+	) as any;
+	assert.deepEqual(field.displayOptions.show.operation, ['retryFailed']);
+	assert.equal(field.displayName, 'Post ID');
+	assert.equal(field.required, true);
+	assert.match(field.description, /Error state/);
+	assert.match(field.description, /publishing must not be paused/);
+	assert.equal(findV2('postGroup'), undefined);
 	const { context } = makeFakeContext({ resource: 'post', operation: 'retryFailed' }, []);
-	await assert.rejects(() => executeV2.call(context), /'Post Group ID' is required/);
+	await assert.rejects(() => executeV2.call(context), /'Post ID' is required/);
 });
 
 // ---- C22 ----
@@ -168,7 +172,6 @@ test('C23. referenced fields are quoted in descriptions and error messages', asy
 	assert.match(wait.description, /'Wait for Result'/);
 	const update = findV2('updateFields').options.find((o: any) => o.name === 'settingsJson');
 	assert.match(update.description, /'Platform Settings'/);
-	assert.match(findV2('postGroup').description, /'Get' or 'Get Many'/);
 	const failing = async (params: Record<string, unknown>, responses: unknown[] = []) => {
 		const { context } = makeFakeContext(params, responses);
 		return executeV2.call(context).then(
@@ -212,38 +215,23 @@ test('C24. List Inputs names its key "Field Name" and keeps the parameter name',
 
 // ---- C25 ----
 
-test('C25. Group Rename and Archive pick the group from a list in version 2 only', async () => {
-	const v2 = v2Properties.filter((p) => p.name === 'targetGroupId');
-	assert.equal(v2.length, 1);
-	const field = v2[0];
-	assert.equal(field.displayName, 'Group Name or ID');
-	assert.equal(field.type, 'options');
-	assert.equal(field.required, true);
-	assert.equal(field.typeOptions?.loadOptionsMethod, 'getGroupChoices');
-	assert.equal(
-		field.description,
-		'Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>',
-	);
-	assert.deepEqual(field.displayOptions?.show, { '@version': [2], resource: ['group'], operation: ['update', 'archive'] });
-	// the list comes before Group Name so the screen reads top to bottom
-	const order = v2Properties.map((p) => p.name);
-	assert.ok(order.indexOf('targetGroupId') < order.indexOf('groupName'));
-	// version 1 keeps its text field
+test('C25. Group Rename and Archive exist in version 1 only, with a text field', async () => {
+	assert.equal(v2Properties.filter((p) => p.name === 'targetGroupId').length, 0);
+	assert.equal(v2Properties.filter((p) => p.name === 'groupName').length, 0);
+	assert.equal(typeof (new PostSider().methods.loadOptions as Record<string, unknown>).getGroupChoices, 'undefined');
 	const v1 = fieldProperties.find((p) => p.name === 'targetGroupId') as INodeProperties;
 	assert.equal(v1.type, 'string');
 	assert.deepEqual(v1.displayOptions?.show?.['@version'], [1]);
-	assert.ok(typeof new PostSider().methods.loadOptions.getGroupChoices === 'function');
-	// a stored string ID keeps working
-	const { context, requests } = makeFakeContext(
-		{ resource: 'group', operation: 'update', targetGroupId: 'grp 1', groupName: 'New' },
-		[{ id: 'grp 1' }],
-	);
-	await executeV2.call(context);
-	assert.equal(requests[0].url, 'https://api.postsider.com/public/v1/customers/grp%201');
-	const missing = makeFakeContext({ resource: 'group', operation: 'archive', targetGroupId: '' }, []);
-	await assert.rejects(() => executeV2.call(missing.context), /'Group Name or ID' is required/);
+	// version 1 still reads the group and names it 'Group ID' in the error
 	const v1Missing = makeFakeContext({ resource: 'group', operation: 'archive', targetGroupId: '' }, [], { typeVersion: 1 });
 	await assert.rejects(() => new PostSider().execute.call(v1Missing.context), /'Group ID' is required/);
+	const v1Rename = makeFakeContext(
+		{ resource: 'group', operation: 'update', targetGroupId: 'grp 1', groupName: 'New' },
+		[{ id: 'grp 1' }],
+		{ typeVersion: 1 },
+	);
+	await new PostSider().execute.call(v1Rename.context);
+	assert.equal(v1Rename.requests[0].url, 'https://api.postsider.com/public/v1/customers/grp%201');
 });
 
 // ---- C26 ----
@@ -261,11 +249,9 @@ test('C26. the credential documentation URL points to the authentication page', 
  * a required choice and are not checked.
  */
 const TOP_LEVEL_ALLOWLIST: Record<string, string[]> = {
-	'approval.getMany': ['returnAll'],
 	'channel.getAnalytics': ['days'],
 	'media.getMany': ['returnAll'],
 	'media.upload': ['uploadSource'],
-	'policy.check': ['policyType'],
 	'post.changeStatus': ['status'],
 	'post.get': ['simplify'],
 	'post.getAnalytics': ['days'],
@@ -302,7 +288,7 @@ test('D. no optional field is shown at the top level of a version 2 operation ex
 			assert.deepEqual(unexpected, [], `${key} shows optional fields at the top level`);
 		}
 	}
-	assert.equal(operations, 34);
+	assert.equal(operations, 26);
 	assert.ok(fields > 40);
 	// every allowlist entry is real, so a removed field cannot stay allowed by accident
 	for (const [key, names] of Object.entries(TOP_LEVEL_ALLOWLIST)) {

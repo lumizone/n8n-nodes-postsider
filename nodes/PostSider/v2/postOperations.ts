@@ -181,8 +181,8 @@ export function buildPostRequest(
 		case 'retryFailed':
 			return {
 				method: 'POST',
-				endpoint: `/posts/group/${encodedId(node, params, 'postGroup', 'Post Group ID')}/retry-failed`,
-				input: { body: {} },
+				endpoint: `/posts/${encodedId(node, params, 'postId', 'Post ID')}/retry`,
+				input: {},
 			};
 		case 'check':
 			return {
@@ -247,7 +247,26 @@ function asObject(value: unknown): IDataObject {
 	return value as IDataObject;
 }
 
+/** The fields Retry Failed returns. Nothing else from the response is passed on. */
+export const RETRY_OUTPUT_FIELDS = ['state', 'publishDate', 'releaseURL', 'error', 'errorCode'] as const;
+
+/**
+ * `POST /posts/:id/retry` answers the whole post row, including its channel with the decrypted access and
+ * refresh tokens. Only a fixed list of fields is copied, so no credential can reach the node output.
+ */
+function shapeRetryOutput(response: unknown): IDataObject[] {
+	const row =
+		response && typeof response === 'object' && !Array.isArray(response)
+			? (response as Record<string, unknown>)
+			: {};
+	const pick = (key: string): unknown => (row[key] === undefined ? null : row[key]);
+	const output: IDataObject = { postId: pick('id') as IDataObject[string] };
+	for (const key of RETRY_OUTPUT_FIELDS) output[key] = pick(key) as IDataObject[string];
+	return [output];
+}
+
 export function shapePostOutput(operation: string, response: unknown, params: IDataObject): IDataObject[] {
+	if (operation === 'retryFailed') return shapeRetryOutput(response);
 	const normalized = normalizePostResponse(response);
 	const simplify = params.simplify === undefined ? true : Boolean(params.simplify);
 	// The backend deletes the whole post group and answers with the group; n8n expects `deleted: true`.
@@ -332,7 +351,7 @@ export async function executePostOperation(
 			break;
 		}
 		case 'retryFailed':
-			params.postGroup = get('postGroup', '');
+			params.postId = get('postId', '');
 			break;
 		case 'check': {
 			const options = get('checkOptions', {}) as IDataObject;

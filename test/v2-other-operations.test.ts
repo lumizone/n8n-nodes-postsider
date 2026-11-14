@@ -64,27 +64,17 @@ test('publishing getState and pause', () => {
 	assert.deepEqual(build('publishing', 'pause', { reason: ' incident ' }).input.body, { reason: 'incident' });
 });
 
-test('approval, policy and group delegate to the v1 builder', () => {
+test('approval and group delegate to the v1 builder; policy has no builder in version 2', () => {
 	assert.deepEqual(
 		build('approval', 'getStatus', { postId: 'p1' }),
 		buildOperationRequest(testNode, 'approval', 'getStatus', { postId: 'p1' }, 'ex1', 0),
 	);
 	assert.deepEqual(
-		build('group', 'create', { groupName: 'Acme' }),
-		buildOperationRequest(testNode, 'group', 'create', { groupName: 'Acme' }, 'ex1', 0),
+		build('approval', 'request', { postId: 'p1' }),
+		buildOperationRequest(testNode, 'approval', 'request', { postId: 'p1' }, 'ex1', 0),
 	);
-	assert.equal(build('policy', 'getMany').endpoint, '/policies');
-});
-
-test('approval approve on v2 uses the same idempotency key format as v1', () => {
-	const params = { approvalId: 'appr_1', note: 'ok', stagePosition: 2, requestedAt: '2026-11-04T10:00:00.000Z', nodeName: 'PostSider' };
-	const v2 = build('approval', 'approve', params);
-	const v1 = buildOperationRequest(testNode, 'approval', 'approve', params as any, 'ex1', 0);
-	assert.deepEqual(v2, v1);
-	assert.match(
-		String((v2.input.headers as any)['Idempotency-Key']),
-		/^n8n:ex1:PostSider:item:0:[0-9a-f]{32}$/,
-	);
+	assert.deepEqual(build('group', 'getMany'), buildOperationRequest(testNode, 'group', 'getMany', {}, 'ex1', 0));
+	assert.throws(() => build('policy', 'getMany'), /Unsupported/);
 });
 
 test('unknown operations throw', () => {
@@ -100,7 +90,6 @@ test('shapeOtherOutput', () => {
 	assert.deepEqual(shapeOtherOutput('channel', 'getMany', channels, {}), [{ id: 'a' }]);
 	assert.equal(shapeOtherOutput('channel', 'getMany', channels, { includeDisabled: true }).length, 2);
 	assert.deepEqual(shapeOtherOutput('media', 'delete', {}, { mediaId: 'm1' }), [{ id: 'm1', deleted: true }]);
-	assert.deepEqual(shapeOtherOutput('policy', 'getMany', { policies: [{ id: 'r1' }] }, {}), [{ id: 'r1' }]);
 });
 
 test('v2 declares the fields of every other resource for version 2 only', () => {
@@ -120,11 +109,9 @@ test('v2 declares the fields of every other resource for version 2 only', () => 
 	}
 	assert.deepEqual(names('channel', 'getAnalytics').sort(), ['channelId', 'days']);
 	assert.deepEqual(names('publishing', 'pause'), ['pauseAdditionalFields']);
-	assert.deepEqual(names('approval', 'approve').sort(), ['approvalAdditionalFields', 'approvalId']);
 	assert.deepEqual(names('approval', 'request'), ['postId']);
-	assert.deepEqual(names('approval', 'getMany').sort(), ['approvalFilters', 'limit', 'returnAll']);
-	assert.deepEqual(names('group', 'update').sort(), ['groupName', 'targetGroupId']);
-	assert.deepEqual(names('policy', 'check').sort(), ['policyChannelPosts', 'policyPublishDate', 'policyType']);
+	assert.deepEqual(names('approval', 'getStatus'), ['postId']);
+	assert.deepEqual(names('group', 'getMany'), []);
 	const channelFilters = v2Properties.find((p) => p.name === 'channelFilters');
 	const groupId = (channelFilters?.options as any[]).find((o) => o.name === 'groupId');
 	assert.equal(groupId?.typeOptions?.loadOptionsMethod, 'getGroups');
@@ -189,54 +176,52 @@ test('executor: channel getMany filters disabled channels client side', async ()
 	assert.deepEqual(out[0].map((o: any) => o.json.id), ['a']);
 });
 
-test('executor: v2 approve reads the approval then sends a stage bound decision', async () => {
-	const { context, requests } = makeContext(
-		{ resource: 'approval', operation: 'approve', approvalId: 'appr_1', approvalAdditionalFields: { note: 'ok' } },
-		[{ id: 'appr_1', requestedAt: '2026-11-04T10:00:00.000Z', stage: { position: 2 } }, { status: 'APPROVED' }],
-	);
-	await executeV2.call(context);
-	assert.equal(requests.length, 2);
-	assert.equal(requests[0].method, 'GET');
-	assert.deepEqual(requests[1].body, { note: 'ok', expectStage: 2 });
-	assert.match(
-		String(requests[1].headers['Idempotency-Key']),
-		/^n8n:[0-9a-f]{12}:[0-9a-f]{12}:ex1:PostSider:item:0:[0-9a-f]{32}$/,
-	);
+test('executor: v2 approval request and getStatus use the v1 routes', async () => {
+	const requested = makeContext({ resource: 'approval', operation: 'request', postId: 'p1' }, [{ status: 'PENDING' }]);
+	await executeV2.call(requested.context);
+	assert.equal(requested.requests[0].method, 'POST');
+	assert.equal(requested.requests[0].url, 'https://api.postsider.com/public/v1/posts/p1/request-approval');
+	const status = makeContext({ resource: 'approval', operation: 'getStatus', postId: 'p1' }, [{ status: 'PENDING' }]);
+	await executeV2.call(status.context);
+	assert.equal(status.requests[0].method, 'GET');
+	assert.equal(status.requests[0].url, 'https://api.postsider.com/public/v1/posts/p1/approval');
 });
 
-test('executor: v2 approval getMany maps the Status filter to status and pages', async () => {
-	const { context, requests } = makeContext(
-		{ resource: 'approval', operation: 'getMany', approvalFilters: { status: 'PENDING' }, returnAll: true },
-		[{ approvals: [{ id: '1' }], nextCursor: 'c2' }, { approvals: [{ id: '2' }] }],
-	);
+test('executor: v2 group getMany lists the groups', async () => {
+	const { context, requests } = makeContext({ resource: 'group', operation: 'getMany' }, [[{ id: 'g1' }]]);
 	const out = await executeV2.call(context);
-	assert.equal(requests[0].qs.status, 'PENDING');
-	assert.equal(requests[1].qs.cursor, 'c2');
-	assert.deepEqual(out[0].map((o: any) => o.json.id), ['1', '2']);
+	assert.equal(requests[0].url, 'https://api.postsider.com/public/v1/groups');
+	assert.deepEqual(out[0].map((o: any) => o.json.id), ['g1']);
 });
 
-test('executor: v2 approval getMany without filters sends no status or since', async () => {
-	const { context, requests } = makeContext(
-		{ resource: 'approval', operation: 'getMany', returnAll: false, limit: 5 },
-		[{ approvals: [] }],
-	);
-	await executeV2.call(context);
-	assert.equal(requests[0].qs.status, undefined);
-	assert.equal(requests[0].qs.since, undefined);
+test('executor: operations that were removed from version 2 are refused before any request', async () => {
+	for (const [resource, operation] of [
+		['approval', 'getMany'],
+		['approval', 'approve'],
+		['approval', 'reject'],
+		['policy', 'check'],
+		['policy', 'getMany'],
+		['group', 'create'],
+		['group', 'update'],
+		['group', 'archive'],
+		['post', 'nope'],
+		['nothing', 'getMany'],
+	]) {
+		const { context, requests } = makeContext({ resource, operation }, []);
+		await assert.rejects(
+			() => executeV2.call(context),
+			new RegExp(`The operation '${resource} > ${operation}' is not available in this node version`),
+			`${resource} > ${operation}`,
+		);
+		assert.equal(requests.length, 0, `${resource} > ${operation}`);
+	}
 });
 
-test('v2 approval optional fields live in collections, never at the top level', () => {
-	const topLevel = v2Properties
-		.filter((p) => (p.displayOptions?.show as any)?.resource?.includes('approval'))
-		.map((p) => p.name);
-	for (const name of ['approvalStatus', 'since', 'note']) assert.ok(!topLevel.includes(name), name);
-	const filters = v2Properties.find((p) => p.name === 'approvalFilters');
-	assert.equal(filters?.type, 'collection');
-	assert.deepEqual((filters?.options as any[]).map((o) => o.name), ['since', 'status']);
-	const extra = v2Properties.find((p) => p.name === 'approvalAdditionalFields');
-	assert.equal(extra?.type, 'collection');
-	assert.deepEqual((extra?.options as any[]).map((o) => o.name), ['note']);
-	assert.deepEqual((extra?.displayOptions?.show as any)?.operation, ['approve', 'reject']);
+test('executor: a refused operation is reported per item with continueOnFail', async () => {
+	const { context } = makeContext({ resource: 'policy', operation: 'check' }, []);
+	context.continueOnFail = () => true;
+	const out = await executeV2.call(context);
+	assert.match(String(out[0][0].json.error), /'policy > check' is not available in this node version/);
 });
 
 test('executor: publishing pause posts the reason', async () => {

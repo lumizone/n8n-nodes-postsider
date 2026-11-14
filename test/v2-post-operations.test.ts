@@ -11,7 +11,8 @@ import {
 	shapePostOutput,
 } from '../nodes/PostSider/v2/postOperations';
 import { v2Properties } from '../nodes/PostSider/v2/descriptions';
-import { testNode } from './helpers';
+import { executeV2 } from '../nodes/PostSider/v2/execute';
+import { makeFakeContext, testNode } from './helpers';
 
 const NOW = new Date('2026-11-11T10:00:00.000Z');
 const build = (operation: string, params: Record<string, unknown> = {}) =>
@@ -27,13 +28,13 @@ test('ids are url encoded', () => {
 	assert.equal(build('get', { postId: 'a/b c' }).endpoint, '/posts/a%2Fb%20c');
 	assert.equal(build('delete', { postId: 'a/b' }).endpoint, '/posts/a%2Fb');
 	assert.equal(build('duplicate', { postId: 'a/b' }).endpoint, '/posts/a%2Fb/duplicate');
-	assert.equal(build('retryFailed', { postGroup: 'g/1' }).endpoint, '/posts/group/g%2F1/retry-failed');
+	assert.equal(build('retryFailed', { postId: 'a/b' }).endpoint, '/posts/a%2Fb/retry');
 	assert.equal(build('getAnalytics', { postId: 'a/b' }).endpoint, '/analytics/post/a%2Fb');
 });
 
 test('a missing id throws', () => {
 	assert.throws(() => build('get', { postId: '  ' }), /Post ID/);
-	assert.throws(() => build('retryFailed', {}), /Group ID/);
+	assert.throws(() => build('retryFailed', {}), /Post ID/);
 });
 
 test('getMany next7 computes a 7 day window from now', () => {
@@ -112,10 +113,10 @@ test('delete, duplicate and retryFailed', () => {
 		build('duplicate', { postId: 'p1', channelId: 'c2', date: '2026-12-01T09:00:00' }).input.body,
 		{ channelId: 'c2', date: '2026-12-01T09:00:00.000Z' },
 	);
-	const retry = build('retryFailed', { postGroup: 'g1' });
+	const retry = build('retryFailed', { postId: 'p1' });
 	assert.equal(retry.method, 'POST');
-	assert.equal(retry.endpoint, '/posts/group/g1/retry-failed');
-	assert.deepEqual(retry.input.body, {});
+	assert.equal(retry.endpoint, '/posts/p1/retry');
+	assert.equal(retry.input.body, undefined);
 });
 
 test('check builds the body with provider identifiers', () => {
@@ -236,7 +237,6 @@ test('other operations return the response as items', () => {
 	assert.deepEqual(shapePostOutput('delete', { id: 'g1' }, { postId: 'p1' }), [
 		{ postId: 'p1', deleted: true },
 	]);
-	assert.deepEqual(shapePostOutput('retryFailed', { results: [] }, {}), [{ results: [] }]);
 	assert.equal(shapePostOutput('rewrite', [{ text: 'a' }, { text: 'b' }], {}).length, 2);
 });
 
@@ -401,4 +401,70 @@ test('executor: getMany returns one item per post', async () => {
 	assert.equal(result[0].length, 1);
 	assert.equal(result[0][0].json.id, 'a');
 	assert.equal(requests[0].method, 'GET');
+});
+
+// ---- Retry Failed: POST /posts/:id/retry ----
+
+const retriedRow = {
+	id: 'p1',
+	state: 'QUEUE',
+	publishDate: '2026-11-12T08:00:00.000Z',
+	releaseURL: null,
+	error: 'old error',
+	errorCode: 'RATE_LIMIT',
+	content: 'text of the post',
+	integration: { id: 'c1', name: 'X', token: 'secret-access-token', refreshToken: 'secret-refresh-token' },
+};
+
+test('Retry Failed sends POST /posts/:id/retry without a body', async () => {
+	const { context, requests } = makeFakeContext({ resource: 'post', operation: 'retryFailed', postId: 'p/1' }, [retriedRow]);
+	await executeV2.call(context);
+	assert.equal(requests.length, 1);
+	assert.equal(requests[0].method, 'POST');
+	assert.equal(requests[0].url, 'https://api.postsider.com/public/v1/posts/p%2F1/retry');
+	assert.equal(requests[0].body, undefined);
+});
+
+test('Retry Failed returns exactly one item with six fields and never the channel tokens', async () => {
+	const { context } = makeFakeContext({ resource: 'post', operation: 'retryFailed', postId: 'p1' }, [retriedRow]);
+	const out = await executeV2.call(context);
+	assert.equal(out[0].length, 1);
+	assert.deepEqual(out[0][0].json, {
+		postId: 'p1',
+		state: 'QUEUE',
+		publishDate: '2026-11-12T08:00:00.000Z',
+		releaseURL: null,
+		error: 'old error',
+		errorCode: 'RATE_LIMIT',
+	});
+	const text = JSON.stringify(out);
+	assert.doesNotMatch(text, /secret-access-token|secret-refresh-token|integration|token/i);
+	// the same through the shaper, also for a response the server sent as a list or as text
+	assert.deepEqual(Object.keys(shapePostOutput('retryFailed', retriedRow, {})[0]).sort(), [
+		'error',
+		'errorCode',
+		'postId',
+		'publishDate',
+		'releaseURL',
+		'state',
+	]);
+	assert.doesNotMatch(JSON.stringify(shapePostOutput('retryFailed', [retriedRow], {})), /secret/);
+	assert.doesNotMatch(JSON.stringify(shapePostOutput('retryFailed', 'secret-access-token', {})), /secret/);
+});
+
+test('Retry Failed gives null for fields the response does not have', () => {
+	assert.deepEqual(shapePostOutput('retryFailed', { id: 'p1', state: 'QUEUE' }, {}), [
+		{ postId: 'p1', state: 'QUEUE', publishDate: null, releaseURL: null, error: null, errorCode: null },
+	]);
+	assert.deepEqual(shapePostOutput('retryFailed', undefined, {}), [
+		{ postId: null, state: null, publishDate: null, releaseURL: null, error: null, errorCode: null },
+	]);
+});
+
+test('Retry Failed no longer has a Post Group ID field', () => {
+	assert.equal(v2Properties.some((p) => p.name === 'postGroup'), false);
+	const postId = v2Properties.find(
+		(p) => p.name === 'postId' && (p.displayOptions?.show?.operation as string[]).includes('retryFailed'),
+	);
+	assert.ok(postId);
 });

@@ -110,7 +110,7 @@ test('new operations expose their fields only for the right resource and operati
 	assert.equal(find('approvalStatus')?.default, 'PENDING');
 });
 
-test('approve and reject descriptions name the required scope', () => {
+test('approve and reject descriptions name no scope that production does not have', () => {
 	const approval = node.description.properties.find(
 		(property) =>
 			property.name === 'operation' &&
@@ -119,7 +119,8 @@ test('approve and reject descriptions name the required scope', () => {
 	);
 	for (const value of ['approve', 'reject']) {
 		const option = (approval?.options ?? []).find((entry) => 'value' in entry && entry.value === value);
-		assert.match(String(option?.description), /approvals:decide/);
+		assert.ok(option);
+		assert.doesNotMatch(String(option?.description), /scope|approvals:decide/);
 	}
 });
 

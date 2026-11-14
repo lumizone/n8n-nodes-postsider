@@ -7,6 +7,40 @@ import { executeOtherOperation } from './otherOperations';
 import { executePostOperation } from './postOperations';
 import { executePublish, type IntegrationCache } from './publish';
 
+/**
+ * The operations of node version 2, which are the ones the PostSider API offers. Version 1 still lists
+ * more (approval decisions, policies, group changes), so a saved workflow or an expression can reach a
+ * removed operation; it is refused here instead of sending a request that has no route.
+ */
+export const V2_OPERATIONS: Record<string, readonly string[]> = {
+	approval: ['getStatus', 'request'],
+	channel: [
+		'disable',
+		'enable',
+		'findNextSlot',
+		'getAnalytics',
+		'getMany',
+		'getOptions',
+		'getRules',
+	],
+	group: ['getMany'],
+	media: ['delete', 'getMany', 'upload'],
+	post: [
+		'changeStatus',
+		'check',
+		'delete',
+		'duplicate',
+		'get',
+		'getAnalytics',
+		'getMany',
+		'publish',
+		'retryFailed',
+		'rewrite',
+		'update',
+	],
+	publishing: ['getState', 'pause'],
+};
+
 const POST_OPERATIONS = new Set([
 	'get',
 	'getMany',
@@ -29,6 +63,13 @@ export async function executeV2(this: IExecuteFunctions): Promise<INodeExecution
 		try {
 			const resource = this.getNodeParameter('resource', index) as string;
 			const operation = this.getNodeParameter('operation', index) as string;
+			if (!V2_OPERATIONS[resource]?.includes(operation)) {
+				throw new NodeOperationError(
+					this.getNode(),
+					`The operation '${resource} > ${operation}' is not available in this node version`,
+					{ itemIndex: index },
+				);
+			}
 			let output: IDataObject[];
 			if (resource === 'post' && operation === 'publish') {
 				output = await executePublish(this, index, integrations);

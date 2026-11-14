@@ -7,11 +7,12 @@ import test from 'node:test';
 import type { INodeProperties, INodePropertyCollection, INodePropertyOptions } from 'n8n-workflow';
 
 import { PostSider } from '../nodes/PostSider/PostSider.node.ts';
+import { V2_OPERATIONS } from '../nodes/PostSider/v2/execute.ts';
 import { PostSiderTrigger } from '../nodes/PostSiderTrigger/PostSiderTrigger.node.ts';
 
 import draftWorkflow from '../examples/import-media-and-create-draft.json';
 import scheduleWorkflow from '../examples/find-slot-and-schedule.json';
-import approvalWorkflow from '../examples/approval-notify-slack.json';
+import approvalWorkflow from '../examples/draft-and-request-approval.json';
 import publishNowWorkflow from '../examples/publish-now-with-image.json';
 import failedPostWorkflow from '../examples/notify-on-failed-post.json';
 
@@ -182,18 +183,36 @@ test('the validator rejects an unknown parameter and a field outside its collect
 		name: 'Probe',
 		type: POSTSIDER,
 		typeVersion: 2,
-		parameters: { resource: 'approval', operation: 'getMany' },
+		parameters: { resource: 'channel', operation: 'getMany' },
 	};
 	assert.throws(() => validateNodeParameters({ ...base, parameters: { ...base.parameters, status: 'PENDING' } }));
 	assert.throws(() =>
-		validateNodeParameters({ ...base, parameters: { ...base.parameters, approvalFilters: { note: 'x' } } }),
+		validateNodeParameters({ ...base, parameters: { ...base.parameters, channelFilters: { note: 'x' } } }),
 	);
 	assert.throws(() =>
-		validateNodeParameters({ ...base, parameters: { ...base.parameters, approvalFilters: { status: 'OPEN' } } }),
+		validateNodeParameters({ ...base, parameters: { ...base.parameters, channelFilters: { includeDisabled: 'yes' } } }),
 	);
 	assert.doesNotThrow(() =>
-		validateNodeParameters({ ...base, parameters: { ...base.parameters, approvalFilters: { status: 'PENDING' } } }),
+		validateNodeParameters({ ...base, parameters: { ...base.parameters, channelFilters: { includeDisabled: true } } }),
 	);
+	// a version 2 operation that was removed shows none of its old fields
+	assert.throws(() =>
+		validateNodeParameters({
+			...base,
+			parameters: { resource: 'approval', operation: 'getMany', approvalFilters: { status: 'PENDING' } },
+		}),
+	);
+});
+
+test('every version 2 example node uses an operation that version 2 offers', () => {
+	for (const workflow of allWorkflows) {
+		for (const node of nodesOf(workflow)) {
+			if (node.type !== POSTSIDER) continue;
+			const resource = String(node.parameters.resource);
+			const operation = String(node.parameters.operation);
+			assert.ok(V2_OPERATIONS[resource]?.includes(operation), `${node.name}: ${resource} > ${operation}`);
+		}
+	}
 });
 
 test('every PostSider node uses version 2 and the trigger uses version 1', () => {
@@ -255,31 +274,35 @@ test('draft example imports a public URL with a supported extension and saves a 
 	assert.match(String(node.parameters.mediaUrls), /^https:\/\/\S+\.(png|jpg|jpeg|gif|webp|mp4|webm|mov)$/);
 });
 
-test('approval example lists pending approvals and sends them to Slack without deciding anything', () => {
+test('approval example saves a draft and requests approval for the post it returns', () => {
 	const types = nodesOf(approvalWorkflow).map((n) => n.type);
 	assert.deepEqual(
 		[...types].sort(),
-		[
-			'n8n-nodes-base.scheduleTrigger',
-			'n8n-nodes-base.slack',
-			'n8n-nodes-base.stickyNote',
-			POSTSIDER,
-		].sort(),
+		['n8n-nodes-base.manualTrigger', 'n8n-nodes-base.stickyNote', POSTSIDER, POSTSIDER].sort(),
 	);
-	const node = nodesOf(approvalWorkflow).find((n) => n.type === POSTSIDER);
-	assert.ok(node);
-	assert.equal(node.parameters.resource, 'approval');
-	assert.equal(node.parameters.operation, 'getMany');
-	assert.deepEqual(node.parameters.approvalFilters, { status: 'PENDING' });
+	const [draft, request] = ['Create Draft', 'Request Approval'].map((name) =>
+		nodesOf(approvalWorkflow).find((n) => n.name === name),
+	);
+	assert.ok(draft && request);
+	assert.equal(draft.parameters.resource, 'post');
+	assert.equal(draft.parameters.operation, 'publish');
+	assert.equal(draft.parameters.when, 'draft');
+	assert.equal(request.parameters.resource, 'approval');
+	assert.equal(request.parameters.operation, 'request');
+	// Publish returns one row per post with `postId`
+	assert.equal(request.parameters.postId, '={{ $json.postId }}');
+	const connections = approvalWorkflow.connections as Record<string, { main: Array<Array<{ node: string }>> }>;
+	assert.equal(connections['Create Draft'].main[0][0].node, 'Request Approval');
+	assert.equal(connections['When Clicking Execute Workflow'].main[0][0].node, 'Create Draft');
+	const note = nodesOf(approvalWorkflow).find((n) => n.type === 'n8n-nodes-base.stickyNote');
+	assert.ok(note);
 });
 
-test('approval example Slack text only uses fields the approvals API returns', () => {
-	const slack = nodesOf(approvalWorkflow).find((n) => n.type === 'n8n-nodes-base.slack');
-	const text = String(slack?.parameters.text);
-	const returned = new Set(['id', 'postId', 'requestedAt', 'channel', 'stage']);
-	const used = [...text.matchAll(/\$json\.(\w+)/g)].map((match) => match[1]);
-	assert.ok(used.length > 0);
-	for (const field of used) assert.ok(returned.has(field), field);
+test('examples name no scope and no server version', () => {
+	for (const workflow of allWorkflows) {
+		const text = JSON.stringify(workflow);
+		assert.doesNotMatch(text, /scopes?\b|:(read|write|decide)\b|2026-11/);
+	}
 });
 
 test('publish-now example uses binary media and waits for the result', () => {

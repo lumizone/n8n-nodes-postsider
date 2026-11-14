@@ -1,0 +1,76 @@
+{
+  "name": "PostSider: Draft and Request Approval",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Draft, then ask for approval\nSet **Channel Names or IDs** in the Create Draft node and run the workflow. The node saves a draft that is not published, and the Request Approval node then asks the approvers in PostSider to review it.\n\nRequest Approval runs once for every post the first node returns, so a draft for several channels sends one request for each channel.\n\n1. Select your PostSider credential in both PostSider nodes.\n2. Choose the channels in Create Draft.\n3. Run the workflow.\n\nThe workflow only requests the review. The decision is made in PostSider.",
+        "height": 340,
+        "width": 460
+      },
+      "id": "note",
+      "name": "Read Me",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [0, -420]
+    },
+    {
+      "parameters": {},
+      "id": "manual-trigger",
+      "name": "When Clicking Execute Workflow",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "resource": "post",
+        "operation": "publish",
+        "channels": ["REPLACE_WITH_CHANNEL_ID"],
+        "text": "A draft that waits for approval, created from n8n.",
+        "when": "draft",
+        "mediaSource": "none",
+        "options": {}
+      },
+      "id": "create-draft",
+      "name": "Create Draft",
+      "type": "n8n-nodes-postsider.postSider",
+      "typeVersion": 2,
+      "position": [260, 0],
+      "credentials": {
+        "postSiderApi": {
+          "id": "",
+          "name": "PostSider account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "approval",
+        "operation": "request",
+        "postId": "={{ $json.postId }}"
+      },
+      "id": "request-approval",
+      "name": "Request Approval",
+      "type": "n8n-nodes-postsider.postSider",
+      "typeVersion": 2,
+      "position": [520, 0],
+      "credentials": {
+        "postSiderApi": {
+          "id": "",
+          "name": "PostSider account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "When Clicking Execute Workflow": {
+      "main": [[{ "node": "Create Draft", "type": "main", "index": 0 }]]
+    },
+    "Create Draft": {
+      "main": [[{ "node": "Request Approval", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": {},
+  "versionId": "postsider-example-draft-approval-v2"
+}

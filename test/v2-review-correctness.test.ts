@@ -5,6 +5,7 @@ import test from 'node:test';
 import { NodeApiError, NodeOperationError, type JsonObject } from 'n8n-workflow';
 
 import { PostSider } from '../nodes/PostSider/PostSider.node.ts';
+import { fieldProperties } from '../nodes/PostSider/resources/descriptions';
 import { buildOperationRequest } from '../nodes/PostSider/shared/operations';
 import { normalizeScheduledDate } from '../nodes/PostSider/shared/payloads';
 import { postSiderApiRequest } from '../nodes/PostSider/shared/transport';
@@ -101,14 +102,14 @@ test('B6. the version 1 Post Create key now includes node name and run index', a
 	assert.notEqual(await createKey({ executionId: 'ex7', instanceId: 'i2' }, 2), key);
 });
 
-test('B6. approval decision keys are bound to instance and workflow too', async () => {
+test('B6. version 1 approval decision keys are bound to instance and workflow too', async () => {
 	const decide = async (ids: Record<string, unknown>) => {
 		const { context, requests } = makeFakeContext(
 			{ resource: 'approval', operation: 'approve', approvalId: 'a1' },
 			[{ requestedAt: '2026-11-04T10:00:00.000Z', stage: { position: 1 } }, { status: 'APPROVED' }],
-			ids as any,
+			{ typeVersion: 1, ...ids } as any,
 		);
-		await executeV2.call(context);
+		await new PostSider().execute.call(context);
 		return String(requests[1].headers['Idempotency-Key']);
 	};
 	const key = await decide({});
@@ -228,32 +229,22 @@ test('B10. the Post Get Many state filter offers approval and held posts, sorted
 	assert.equal((range.input.qs as any).state, 'HELD');
 });
 
-// ---- B11: scopes in descriptions ----
+// ---- B11: no scope names in version 2 descriptions ----
 
-test('B11. scope requirements are in the operation descriptions', () => {
+test('B11. the AI operations keep the 409 and 402 notes and name no scope', () => {
 	const describe = (resource: string, value: string) => {
 		const operation = v2Properties.find(
 			(p) => p.name === 'operation' && (p.displayOptions?.show?.resource as string[])[0] === resource,
 		);
 		return String((operation?.options as any[]).find((o) => o.value === value).description);
 	};
-	assert.match(describe('channel', 'getOptions'), /channels:write/);
+	assert.doesNotMatch(describe('channel', 'getOptions'), /scope|channels:write/);
 	for (const value of ['check', 'rewrite']) {
 		const text = describe('post', value);
-		assert.match(text, /posts:write/);
+		assert.doesNotMatch(text, /scope|posts:write/);
 		assert.match(text, /409/);
 		assert.match(text, /402/);
 	}
-});
-
-// ---- B12: approvals Return All ----
-
-test('B12. Approval Get Many mentions the 1,000 approval limit of Return All', () => {
-	const operation = v2Properties.find(
-		(p) => p.name === 'operation' && (p.displayOptions?.show?.resource as string[])[0] === 'approval',
-	);
-	const getMany = (operation?.options as any[]).find((o) => o.value === 'getMany');
-	assert.match(getMany.description, /up to 1,000 approvals/);
 });
 
 // ---- B14: missing route ----
@@ -428,9 +419,8 @@ test('B16. every call site passes its own field name', () => {
 	);
 });
 
-test('B16. Requested Since says it is read as UTC without a time zone', () => {
-	const filters = v2Properties.find((p) => p.name === 'approvalFilters') as any;
-	const since = filters.options.find((o: any) => o.name === 'since');
+test('B16. version 1 Requested Since says it is read as UTC without a time zone', () => {
+	const since = fieldProperties.find((p) => p.name === 'since') as any;
 	assert.match(since.description, /UTC when no time zone is given/);
 });
 

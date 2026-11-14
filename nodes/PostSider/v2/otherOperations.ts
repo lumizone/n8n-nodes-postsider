@@ -4,7 +4,6 @@ import { NodeOperationError } from 'n8n-workflow';
 import { readControlParameters, runControlRequest } from '../shared/approvals';
 import {
 	buildOperationRequest,
-	extractList,
 	normalizePostResponse,
 	type OperationRequest,
 } from '../shared/operations';
@@ -14,7 +13,7 @@ import { parseIdList, parseUrlList } from './inputs';
 import { uploadBinaries, uploadFromUrls, type ApiCall } from './media';
 
 const DEFAULT_ANALYTICS_DAYS = 7;
-const CONTROL_RESOURCES = new Set(['approval', 'policy', 'group']);
+const CONTROL_RESOURCES = new Set(['approval', 'group']);
 const MEDIA_LIST_KEYS = ['results', 'media', 'items', 'data'];
 const DEFAULT_MEDIA_LIMIT = 50;
 /** Hard cap on the pages fetched for Media > Get Many (50 pages of 18 files). */
@@ -121,7 +120,7 @@ function buildPublishingRequest(node: INode, operation: string, params: IDataObj
 	throw new NodeOperationError(node, `Unsupported PostSider operation: publishing.${operation}`);
 }
 
-/** Media list, delete, channel tools and publishing state; approval, policy and group reuse the v1 builder. */
+/** Media list, delete, channel tools and publishing state; approval and group reuse the v1 builder. */
 export function buildOtherRequest(
 	node: INode,
 	resource: string,
@@ -179,7 +178,6 @@ export function shapeOtherOutput(
 			: normalized.filter((channel) => !(channel as { disabled?: unknown } | null)?.disabled);
 		return keep.map(asObject);
 	}
-	if (resource === 'policy' && operation === 'getMany') return extractList(normalized).map(asObject);
 	if (Array.isArray(normalized)) return normalized.map(asObject);
 	return [asObject(normalized)];
 }

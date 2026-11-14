@@ -39,7 +39,7 @@ const operationPropertiesBase: INodeProperties[] = [
 				name: 'Approve',
 				value: 'approve',
 				action: 'Approve approval request',
-				description: 'Approve a pending approval. Needs an API key with the approvals:decide scope.',
+				description: 'Approve a pending approval',
 			},
 			{
 				name: 'Get Many',
@@ -57,7 +57,7 @@ const operationPropertiesBase: INodeProperties[] = [
 				name: 'Reject',
 				value: 'reject',
 				action: 'Reject approval request',
-				description: 'Reject a pending approval. Needs an API key with the approvals:decide scope.',
+				description: 'Reject a pending approval',
 			},
 			{
 				name: 'Request',
@@ -135,7 +135,7 @@ const operationPropertiesBase: INodeProperties[] = [
 				name: 'Get Many Rules',
 				value: 'getMany',
 				action: 'Get many policy rules',
-				description: 'List the publishing policy rules. Needs the policies:read scope.',
+				description: 'List the publishing policy rules',
 			},
 		],
 		'check',
