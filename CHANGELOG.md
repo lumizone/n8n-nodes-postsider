@@ -4,12 +4,42 @@ All notable changes to this project will be documented in this file.
 
 ## 0.3.2 - 2026-11-14
 
+Changes made for the n8n verification review.
+
 ### Changed
 
-- Node version 2, Approval > Get Many: Status and Requested Since moved into a Filters collection. Without a Status filter all approvals are returned (before, the default was Pending).
-- Node version 2, Approval > Approve and Reject: Note moved into an Additional Fields collection.
+Moved or renamed fields. Saved version 2 workflows and PostSider Trigger nodes created with 0.3.0 or 0.3.1 must set these fields again.
+
+- Approval > Get Many (version 2): Status and Requested Since moved into a Filters collection (`approvalFilters`). Without a Status filter all approvals are returned (before, the default was Pending).
+- Approval > Approve and Reject (version 2): Note moved into an Additional Fields collection (`approvalAdditionalFields`).
+- Channel > Get Many (version 2): Group and Include Disabled moved into a Filters collection (`channelFilters`, fields `groupId` and `includeDisabled`).
+- Media > Get Many (version 2): Page removed. Return All and Limit added; Search moved into a Filters collection (`mediaFilters`, field `search`). Pages are fetched until the limit is met, or all of them with Return All, at most 50 pages (900 files).
+- Publishing > Pause (version 2): Reason moved into an Additional Fields collection (`pauseAdditionalFields`).
+- Post > Check (version 2): Has Media and Media Type replaced by Options > Media Type (`checkOptions`, field `mediaType`: Image, Mixed, None, Video; default None).
+- Post > Retry Failed (version 2): the field is now called Post Group ID (same parameter, `postGroup`).
+- Group > Rename and Group > Archive (version 2): Group ID is now a list, Group Name or ID (same parameter, `targetGroupId`; a stored ID still works).
+- Channel > Get Options (version 2): the key of List Inputs is shown as Field Name (same parameter).
+- PostSider Trigger: Events is now called Trigger On and is required. Channel Names or IDs moved into Options (`options`, field `channels`).
+- Post > Delete (version 2) returns `{ "postId": "...", "deleted": true }` and says that it deletes the post on every channel it was created for.
+- Post > Get Many (version 2) state filter adds Awaiting Approval and Held.
+- Operation labels no longer contain articles (for example "Get post"), in both node versions.
+- Dates: error messages name the field (for example 'Start Date'), and the offsets `Z`, `+HH:MM`, `+HHMM` and `+HH` are accepted. A date without a time zone is still read as UTC.
+- Descriptions and error messages put the names of fields in single quotes; operation descriptions name the required API key scopes (`channels:write` for Get Options, `posts:write` for Check and Rewrite, with the 409 and 402 AI errors).
 - Codex files no longer declare `subcategories`.
-- Version 1 nodes are unchanged.
+- The credential documentation link points to docs.postsider.com/security/authentication.
+- Version 1 nodes are unchanged, except for operation label and error message wording, the idempotency key of Post Create (below), the media URL pre-check (below) and error handling.
+
+### Added
+
+- Public media URLs are checked before any request, with the same rule as the server: HTTPS, and a path that ends in a lowercase `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.mp4`, `.webm` or `.mov` (a query string is allowed). This also applies to version 1 Media > Import From URL.
+- Post > Check, Post > Rewrite and Channel > Get Options wait up to 120 seconds (other requests still 30 seconds).
+- A server that does not know a route (404 "Cannot GET /public/v1/...") now gives "This operation is not available on this PostSider server" with a hint to update the server to 2026-11 or newer.
+
+### Fixed
+
+- Derived idempotency keys include the instance ID and workflow ID (hashed) next to the execution ID, node name, run and item, so two n8n instances or a reset n8n database that use one PostSider organization no longer collide. The version 1 Post Create key also gains the node name and run number. Keys stay the same for a retry of the same item.
+- Wait for Result retries after HTTP 429 (and respects Retry-After) instead of failing every pending row.
+- Errors keep their type and carry the item index; plain errors in media upload and settings lookup are now node errors.
 
 ## 0.3.1 - 2026-11-11
 
