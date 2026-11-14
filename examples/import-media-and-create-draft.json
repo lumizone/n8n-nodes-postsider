@@ -1,6 +1,18 @@
 {
-  "name": "PostSider: Import Media and Create Draft",
+  "name": "PostSider: Create a Draft With an Image",
   "nodes": [
+    {
+      "parameters": {
+        "content": "## Draft with an image from a URL\nSet **Channel Names or IDs** in the PostSider node and run the workflow. Media is set to **Public URLs** and When to **Draft**, so the image is imported into the PostSider media library and attached to a draft that is not published.\n\nThe URL must be public, use HTTPS and end in a lowercase `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.mp4`, `.webm` or `.mov`. Replace the example URL with your own file.\n\nThe API key needs the scopes `posts:write`, `channels:read` and `media:write`.",
+        "height": 280,
+        "width": 440
+      },
+      "id": "note",
+      "name": "Read Me",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [0, -340]
+    },
     {
       "parameters": {},
       "id": "manual-trigger",
@@ -11,52 +23,34 @@
     },
     {
       "parameters": {
-        "resource": "media",
-        "operation": "importFromUrl",
-        "url": "https://images.unsplash.com/photo-1611162617474-5b21e879e113.jpg"
-      },
-      "id": "import-media",
-      "name": "Import Media",
-      "type": "n8n-nodes-postsider.postSider",
-      "typeVersion": 1,
-      "position": [240, 0]
-    },
-    {
-      "parameters": {
         "resource": "post",
-        "operation": "create",
-        "type": "draft",
-        "channelPosts": {
-          "channelPost": [
-            {
-              "channelId": "REPLACE_WITH_CHANNEL_ID",
-              "content": "A review-first draft created from n8n.",
-              "firstComment": "",
-              "mediaJson": "={{ JSON.stringify([{ id: $json.id, path: $json.path }]) }}",
-              "settingsJson": "{}"
-            }
-          ]
-        },
-        "shortLink": false,
-        "tagsJson": "[]",
-        "idempotencyKey": ""
+        "operation": "publish",
+        "channels": ["REPLACE_WITH_CHANNEL_ID"],
+        "text": "A review-first draft created from n8n.",
+        "when": "draft",
+        "mediaSource": "url",
+        "mediaUrls": "https://example.com/images/launch-photo.png",
+        "options": {}
       },
       "id": "create-draft",
       "name": "Create Draft",
       "type": "n8n-nodes-postsider.postSider",
-      "typeVersion": 1,
-      "position": [500, 0]
+      "typeVersion": 2,
+      "position": [260, 0],
+      "credentials": {
+        "postSiderApi": {
+          "id": "",
+          "name": "PostSider account"
+        }
+      }
     }
   ],
   "connections": {
     "When Clicking Execute Workflow": {
-      "main": [[{ "node": "Import Media", "type": "main", "index": 0 }]]
-    },
-    "Import Media": {
       "main": [[{ "node": "Create Draft", "type": "main", "index": 0 }]]
     }
   },
   "active": false,
   "settings": {},
-  "versionId": "postsider-example-draft-v1"
+  "versionId": "postsider-example-draft-v2"
 }

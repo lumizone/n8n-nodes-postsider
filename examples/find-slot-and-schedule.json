@@ -1,6 +1,18 @@
 {
-  "name": "PostSider: Find Slot and Schedule",
+  "name": "PostSider: Schedule Into the Next Free Slot",
   "nodes": [
+    {
+      "parameters": {
+        "content": "## Next free slot\nSet **Channel Names or IDs** in the PostSider node and run the workflow. When is set to **Next Free Slot**, so the node looks up the next free queue slot of the first selected channel and schedules the post there. Nothing is published right now.\n\nThe API key needs the scopes `posts:write`, `posts:read` and `channels:read`.",
+        "height": 200,
+        "width": 420
+      },
+      "id": "note",
+      "name": "Read Me",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [0, -260]
+    },
     {
       "parameters": {},
       "id": "manual-trigger",
@@ -11,52 +23,33 @@
     },
     {
       "parameters": {
-        "resource": "scheduling",
-        "operation": "findNextSlot",
-        "channelId": "REPLACE_WITH_CHANNEL_ID"
-      },
-      "id": "find-slot",
-      "name": "Find Next Slot",
-      "type": "n8n-nodes-postsider.postSider",
-      "typeVersion": 1,
-      "position": [240, 0]
-    },
-    {
-      "parameters": {
         "resource": "post",
-        "operation": "create",
-        "type": "schedule",
-        "publishDate": "={{ $json.date }}",
-        "channelPosts": {
-          "channelPost": [
-            {
-              "channelId": "REPLACE_WITH_CHANNEL_ID",
-              "content": "Scheduled into the next free PostSider queue slot.",
-              "firstComment": "",
-              "mediaJson": "[]",
-              "settingsJson": "{}"
-            }
-          ]
-        },
-        "shortLink": false,
-        "tagsJson": "[]"
+        "operation": "publish",
+        "channels": ["REPLACE_WITH_CHANNEL_ID"],
+        "text": "Scheduled into the next free PostSider queue slot.",
+        "when": "nextSlot",
+        "mediaSource": "none",
+        "options": {}
       },
       "id": "schedule-post",
       "name": "Schedule Post",
       "type": "n8n-nodes-postsider.postSider",
-      "typeVersion": 1,
-      "position": [500, 0]
+      "typeVersion": 2,
+      "position": [260, 0],
+      "credentials": {
+        "postSiderApi": {
+          "id": "",
+          "name": "PostSider account"
+        }
+      }
     }
   ],
   "connections": {
     "When Clicking Execute Workflow": {
-      "main": [[{ "node": "Find Next Slot", "type": "main", "index": 0 }]]
-    },
-    "Find Next Slot": {
       "main": [[{ "node": "Schedule Post", "type": "main", "index": 0 }]]
     }
   },
   "active": false,
   "settings": {},
-  "versionId": "postsider-example-schedule-v1"
+  "versionId": "postsider-example-schedule-v2"
 }

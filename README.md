@@ -4,17 +4,21 @@ An n8n community node for publishing and automating social media posts with [Pos
 
 The package talks directly to the PostSider public REST API. It does not start the PostSider MCP server and has no runtime dependencies.
 
-## What's new in 0.3.0
+## What's new
 
-- **Node version 2** is the default for new nodes. Workflows that already use the node keep version 1, unchanged.
-- **Post > Publish** puts a post out in four fields: Channels, Text, Media and When. When is **Now** by default.
-- Pick several channels at once and send one text to all of them, with optional per-channel text.
-- Media comes straight from the input item's binary data, from public URLs, or from files you already uploaded. No separate upload step.
-- Platform settings have safe defaults, so a plain post works on X, YouTube, TikTok and Instagram without any JSON.
-- **Wait for Result** returns the final status and the post link.
-- New operations: Post Update, Delete, Duplicate, Retry Failed, Check Content, Rewrite with AI and Get Analytics; Media Upload, Get Many and Delete; Channel Get Rules, Find Next Slot, Get Analytics, Enable and Disable; Publishing Get State and Pause.
-- New **PostSider Trigger** node (polling) for published, failed and scheduled posts.
-- The node can be used as a tool by AI agents.
+### 0.3.2
+
+- Optional fields of node version 2 moved into collections (Filters, Additional Fields, Options). Saved version 2 workflows and PostSider Trigger nodes created with 0.3.0 or 0.3.1 must set these fields again. [CHANGELOG.md](CHANGELOG.md) lists every moved or renamed field.
+- Post > Delete returns `{ "postId": "...", "deleted": true }` and removes every channel version that was created with the post.
+- Idempotency keys that the node derives are scoped to the n8n instance and the workflow, so two instances that share one PostSider organization no longer collide.
+- Clearer errors: field names in single quotes, accepted date formats, and "This operation is not available on this PostSider server" for a server that is too old.
+- Public media URLs are checked before any request (HTTPS and a supported lowercase file extension).
+- Post > Check, Post > Rewrite and Channel > Get Options wait up to 120 seconds for the AI response; other requests still time out after 30 seconds.
+- The post state filter of Post > Get Many adds Awaiting Approval and Held.
+
+### 0.3.0
+
+Node version 2 (the default for new nodes), Post > Publish with When, Wait for Result, media from binary data or URLs, platform settings, more operations, and the PostSider Trigger node. See [CHANGELOG.md](CHANGELOG.md). Workflows built with earlier versions keep node version 1, unchanged.
 
 ## Features
 
@@ -23,7 +27,7 @@ The package talks directly to the PostSider public REST API. It does not start t
 - Publish now, schedule, use the next free queue slot, or save a draft.
 - Use stable idempotency keys so n8n retries do not create duplicate posts.
 - Upload media from binary data or public URLs as part of publishing.
-- Request, list, approve and reject approvals; check a post against publishing policies; manage groups (need a newer PostSider server, see the operations table).
+- Request, list, approve and reject approvals; check a post against publishing policies; manage groups (these need PostSider server 2026-11 or newer, see Compatibility).
 - Normalize PostSider media fields and optionally simplify large post responses.
 
 ## Installation
@@ -60,6 +64,37 @@ https://social.example.com/api
 ```
 
 The node appends `/public/v1`. Remote HTTP URLs and URLs containing embedded credentials are rejected. Plain HTTP is accepted only for loopback development hosts.
+
+See the [PostSider authentication guide](https://docs.postsider.com/security/authentication) for how keys and scopes work.
+
+### Required API key scopes
+
+Create the key with the scopes your workflow needs. Typical ones:
+
+| Operation | Scopes |
+| --- | --- |
+| Post Publish | `posts:write` and `channels:read`; plus `media:write` for binary or URL media, and `posts:read` for Next Free Slot and Wait for Result |
+| Post Update | `posts:write`; plus `posts:read` when you change platform settings, and `media:write` for new media |
+| Post Delete, Duplicate, Retry Failed, Change Status | `posts:write` |
+| Post Check, Rewrite | `posts:write` |
+| Post Get, Get Many; PostSider Trigger | `posts:read` |
+| Post Get Analytics | `analytics:read` |
+| Media Upload, Delete | `media:write` |
+| Media Get Many | `posts:read` |
+| Approval Get Status, Get Many | `approvals:read` |
+| Approval Request | `approvals:write` |
+| Approval Approve, Reject | `approvals:decide` (never granted by default) and `approvals:read` |
+| Policy Check | `posts:read` |
+| Policy Get Many Rules | `policies:read` |
+| Channel Get Many, Get Rules; Group Get Many | `channels:read` |
+| Channel Find Next Slot | `posts:read` |
+| Channel Get Analytics | `analytics:read` |
+| Channel Get Options | `channels:write` (the server asks for it, although the operation only reads) |
+| Channel Enable, Disable; Group Create, Rename, Archive | `channels:write` |
+| Publishing Get State | `publishing:read` |
+| Publishing Pause | `publishing:write` |
+
+If an operation returns a permission error, check the scope list of the key in PostSider **Settings > API**.
 
 ## Quick start
 
@@ -119,8 +154,9 @@ Publish returns one item per channel: `postId`, `group`, `channelId`, `channelNa
 
 The **PostSider Trigger** node starts a workflow when posts change state. It polls the PostSider API, so it needs no webhook setup and works on PostSider Cloud.
 
-- **Events**: Post Published (default), Post Failed, Post Scheduled. Pick one or more.
-- **Channels**: optional filter. Leave empty for all channels.
+- **Trigger On** (required): Post Published (default), Post Failed, Post Scheduled. Pick one or more.
+- **Options > Channel Names or IDs**: optional filter. Leave it out for all channels.
+- It needs an API key with the `posts:read` scope.
 - It looks at posts from 7 days back to 30 days ahead.
 - The first time you activate the workflow, it emits nothing. It only remembers what it sees.
 - A new event is a post that reached a selected state and was not in that state in the previous poll. If a post leaves a state and comes back, it is reported again.
@@ -138,69 +174,40 @@ The PostSider node can be used as a tool by n8n AI agents. Operations have plain
 | --- | --- | --- |
 | Approval | Request | Ask the approvers to review a post |
 | Approval | Get Status | Retrieve the human approval state for a post |
-| Approval | Get Many | List approvals by status and date, newest first |
-| Approval | Approve / Reject | Decide a pending approval (optional note) |
-| Channel | Get Many | List connected channels, optionally by group or including disabled ones |
+| Approval | Get Many | List approvals, newest first. Filters: Status and Requested Since. Return All or Limit |
+| Approval | Approve / Reject | Decide a pending approval (optional Note under Additional Fields) |
+| Channel | Get Many | List connected channels. Filters: Group and Include Disabled |
 | Channel | Get Rules | Limits and required settings of a channel |
-| Channel | Get Options | List options from a channel's platform, such as Pinterest boards or Discord and Slack channels, to use in platform settings or Settings JSON. Some lists take an input such as a search word |
+| Channel | Get Options | List options from a channel's platform, such as Pinterest boards or Discord and Slack channels, to use in platform settings or Settings JSON. Some lists take an input such as a search word, set under List Inputs |
 | Channel | Find Next Slot | Find the next free queue slot for a channel |
 | Channel | Get Analytics | Analytics of a channel over a number of days |
 | Channel | Enable / Disable | Turn a channel on or off without disconnecting it |
 | Group | Get Many | List channel groups |
-| Group | Create / Rename / Archive | Manage groups (customer workspaces) |
+| Group | Create / Rename / Archive | Manage groups (customer workspaces). Rename and Archive pick the group from a list |
 | Media | Upload | Upload binary data or public URLs to the media library |
-| Media | Get Many | List media, with search and paging |
+| Media | Get Many | List media. Return All or Limit, and Filters > Search |
 | Media | Delete | Delete a media file |
 | Policy | Check | Dry run: which publishing rules a post would hit (creates nothing) |
 | Policy | Get Many Rules | List the publishing policy rules |
 | Post | Publish | Publish now, schedule, next free slot or draft, on one or more channels |
 | Post | Get | Retrieve that post and its thread (the follow-up posts). Other channels of the same group are not included; use Get Many to see them |
-| Post | Get Many | List posts for the next 7 days, the last 7 days or a custom range; filter by state, channel and group |
+| Post | Get Many | List posts for the next 7 days, the last 7 days or a custom range. Filters: Channel, Group and State (Any, Awaiting Approval, Draft, Error, Held, Published, Queue) |
 | Post | Update | Change text, time, first comment, media or settings; stored settings are kept |
 | Post | Change Status | Move a post between draft and queue: Schedule queues a draft for its saved date, Draft takes a queued post out of the queue |
-| Post | Delete | Delete a post. This deletes the whole group (all channel versions) |
+| Post | Delete | Delete a post. This removes every channel version that was created with the post, and returns `deleted: true` |
 | Post | Duplicate | Create a draft copy, optionally for another channel or date |
-| Post | Retry Failed | Republish a failed post instead of creating a duplicate |
-| Post | Check | Validate text against channel rules without creating a post |
-| Post | Rewrite | Rewrite text with AI for a platform and tone |
+| Post | Retry Failed | Republish a failed post (enter its Post Group ID) instead of creating a duplicate |
+| Post | Check | Validate text against channel rules without creating a post. Options > Media Type tells the check what media the post would have |
+| Post | Rewrite | Rewrite text with AI. Options: Platform, Tone and Number of Versions |
 | Post | Get Analytics | Analytics of a published post |
 | Publishing | Get State | Whether publishing is paused |
-| Publishing | Pause | Pause publishing for the whole organization. Resume only works in the PostSider dashboard |
+| Publishing | Pause | Pause publishing for the whole organization. Additional Fields > Reason is optional. Resume only works in the PostSider dashboard |
 
-Approval, Policy and Group operations and Post > Retry Failed need PostSider server 2026-11 or newer. On older servers they return a 404 error and the other operations keep working.
+Approval, Policy and Group operations and Post > Retry Failed need PostSider server 2026-11 or newer. On older servers they answer "This operation is not available on this PostSider server" and the other operations keep working.
 
 ## Version 1 workflows
 
 Workflows built with 0.2.x keep using node version 1: the same fields, the same behavior, including Post > Create and the Scheduling resource. Nothing needs to change. To use the new Publish operation, add a new PostSider node (it is version 2).
-
-### Required API key scopes
-
-Create the key with the scopes your workflow needs. Typical ones:
-
-| Operation | Scopes |
-| --- | --- |
-| Post Publish | `posts:write` and `channels:read`; plus `media:write` for binary or URL media, and `posts:read` for Next Free Slot and Wait for Result |
-| Post Update | `posts:write`; plus `posts:read` when you change platform settings, and `media:write` for new media |
-| Post Delete, Duplicate, Retry Failed, Change Status | `posts:write` |
-| Post Check, Rewrite | `posts:write` |
-| Post Get, Get Many; PostSider Trigger | `posts:read` |
-| Post Get Analytics | `analytics:read` |
-| Media Upload, Delete | `media:write` |
-| Media Get Many | `posts:read` |
-| Approval Get Status, Get Many | `approvals:read` |
-| Approval Request | `approvals:write` |
-| Approval Approve, Reject | `approvals:decide` (never granted by default) and `approvals:read` |
-| Policy Check | `posts:read` |
-| Policy Get Many Rules | `policies:read` |
-| Channel Get Many, Get Rules; Group Get Many | `channels:read` |
-| Channel Find Next Slot | `posts:read` |
-| Channel Get Analytics | `analytics:read` |
-| Channel Get Options | `channels:write` (the server asks for it, although the operation only reads) |
-| Channel Enable, Disable; Group Create, Rename, Archive | `channels:write` |
-| Publishing Get State | `publishing:read` |
-| Publishing Pause | `publishing:write` |
-
-If an operation returns a permission error, check the scope list of the key in PostSider **Settings > API**. For a self-hosted PostSider, set **Base URL** to your public origin including `/api` (see Credentials).
 
 ## Create Post (version 1)
 
@@ -245,10 +252,11 @@ PostSider validates the final provider settings before accepting a scheduled pos
 
 ### Idempotency
 
-Publish and Create send an `Idempotency-Key` header, so a retry of the same request does not post twice. When **Idempotency Key** is empty, the node builds one from the n8n execution ID, the node name, the run number and the input item index. That makes it:
+Publish and Create send an `Idempotency-Key` header, so a retry of the same request does not post twice. When **Idempotency Key** is empty, the node builds one from a hash of the n8n instance ID and of the workflow ID, the execution ID, the node name, the run number and the input item index. That makes it:
 
 - safe for retries: re-running the same item inside the same execution reuses the same API operation instead of creating a duplicate;
-- safe for loops and several PostSider nodes in one workflow: each node, run and item gets its own key, so they never collide.
+- safe for loops and several PostSider nodes in one workflow: each node, run and item gets its own key, so they never collide;
+- safe across n8n instances and workflows that use one PostSider organization: the instance and the workflow are part of the key.
 
 PostSider rejects a reused key when the request body differs. So with **Retry On Fail**, the node remembers the date it resolved (now or the free slot) and the media it uploaded for each derived key (in memory, up to 500 items, per n8n process) and sends the identical request again, without uploading twice. This only applies to the automatic key. If a retry still gets "already used with a different request" (for example n8n restarted between attempts), the node returns one row per channel with `state: UNKNOWN`, `alreadySubmitted: true` and the key, instead of an error. Check the post in PostSider before retrying. A key you set yourself is never remembered and always passes the server answer through.
 
@@ -264,21 +272,34 @@ Allowed characters are letters, numbers, `.`, `_`, `:`, and `-` up to 255 charac
 
 Request, Get Many and Get Status are safe reads and requests. **Approve** and **Reject** make the decision that lets a post publish.
 
-> Do not wire Approve or Reject to unreviewed AI output or to an unauthenticated webhook. Use a dedicated API key with only `approvals:decide`, keep the example's signature check, and decide only from a source you trust. PostSider can block an API key from approving a post it requested itself.
+> Do not wire Approve or Reject to unreviewed AI output or to an unauthenticated webhook. Use a dedicated API key with only the scopes the workflow needs (`approvals:decide` and `approvals:read`), and decide only from a source you trust. PostSider can block an API key from approving a post it requested itself.
 
 The node reads the approval first and sends `expectStage` (the current stage position), so a stale run gets a 409 instead of deciding a later stage. Each decision sends an `Idempotency-Key` built from the execution ID, the node name, the item index and a digest of the approval, decision, note, stage position and request time, so an n8n retry does not decide twice, a later stage or re-requested approval never replays an older answer, and two Approve nodes never collide. If the read fails, a random per-call key is used and `expectStage` is omitted. **Get Many** with **Return All** follows `nextCursor` for up to 10 pages (1000 approvals).
 
 ## Example workflows
 
-Import these files into n8n and replace placeholder channel IDs:
+The `examples` folder is part of the npm package and is also in the GitHub repository. Import a file into n8n (**Import from File**), select your credentials, and replace the placeholder IDs. All examples use PostSider node version 2 (the trigger is version 1), are inactive when imported, and need no environment variables or Code nodes.
 
-- `examples/publish-now-with-image.json`: download an image, then Publish Now with binary media and Wait for Result (version 2)
-- `examples/notify-on-failed-post.json`: PostSider Trigger on failed posts, then a Set node you can replace with your own alert (version 2)
-- `examples/import-media-and-create-draft.json` (version 1)
-- `examples/find-slot-and-schedule.json` (version 1)
-- `examples/approval-notify-slack.json`
+- `examples/publish-now-with-image.json`: downloads an image, then Post > Publish with When = Now, binary media and Wait for Result. It sends a real post when you run it, so set the channel first.
+- `examples/notify-on-failed-post.json`: PostSider Trigger on failed posts, then a Set node you can replace with your own alert.
+- `examples/find-slot-and-schedule.json`: Post > Publish with When = Next Free Slot. One node finds the slot and schedules the post.
+- `examples/import-media-and-create-draft.json`: Post > Publish with Media = Public URLs and When = Draft. It imports the image and saves a draft that is not published.
+- `examples/approval-notify-slack.json`: every hour, Approval > Get Many with Status = Pending, then one Slack message for each pending approval. It only reads and notifies; it does not approve or reject anything. Select your Slack credential and the Slack channel.
 
-The two version 2 examples are inactive when imported. The publish example sends a real post when you run it, so set the channel first. The draft example creates a draft, the schedule example schedules only after you configure and activate it. The approval example receives an `approval.requested` webhook, verifies its HMAC signature (placeholder secret from the `POSTSIDER_WEBHOOK_SECRET` environment variable) and filters the event; its Approve and Reject nodes are disabled until you enable one on purpose.
+## Compatibility
+
+- Tested with n8n 2.47.7.
+- Requires an n8n version that supports community node API version 1 (`n8nNodesApiVersion: 1`).
+- Approval Get Many, Approve and Reject, the Policy and Group operations and Post > Retry Failed need PostSider server 2026-11 or newer (this applies to node version 1 approvals too). Older servers, including self-hosted ones, answer "This operation is not available on this PostSider server". The other operations do not depend on the server date.
+- Node.js 20.19 through 24 (the runtimes n8n uses).
+
+## Resources
+
+- [n8n community nodes documentation](https://docs.n8n.io/integrations/#community-nodes)
+- [PostSider API documentation](https://docs.postsider.com/api/overview)
+- [PostSider authentication and API keys](https://docs.postsider.com/security/authentication)
+- [CHANGELOG.md](CHANGELOG.md)
+- Issues: [github.com/lumizone/n8n-nodes-postsider/issues](https://github.com/lumizone/n8n-nodes-postsider/issues)
 
 ## Development
 
@@ -313,7 +334,7 @@ Releases are published only from GitHub Actions (`.github/workflows/publish.yml`
 - The API key is stored as an n8n password credential.
 - Requests refuse redirects, preventing the authenticated request from being redirected to another origin.
 - Credentials are not sent on cross-origin redirects.
-- API requests time out after 30 seconds.
+- API requests time out after 30 seconds, except Post > Check, Post > Rewrite and Channel > Get Options, which wait up to 120 seconds.
 - Remote Base URLs must use HTTPS, except loopback development URLs.
 - The package has no runtime dependencies and does not access environment variables or the filesystem.
 - Destructive operations (Post Delete, Media Delete, Publishing Pause) only run when you add and configure them in a workflow.

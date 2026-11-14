@@ -3,15 +3,32 @@
   "nodes": [
     {
       "parameters": {
-        "events": ["failed"],
-        "channels": [],
-        "pollTimes": { "item": [{ "mode": "everyMinute" }] }
+        "events": [
+          "failed"
+        ],
+        "options": {},
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        }
       },
       "id": "failed-trigger",
       "name": "PostSider Trigger",
       "type": "n8n-nodes-postsider.postSiderTrigger",
       "typeVersion": 1,
-      "position": [0, 0]
+      "position": [
+        0,
+        0
+      ],
+      "credentials": {
+        "postSiderApi": {
+          "id": "",
+          "name": "PostSider account"
+        }
+      }
     },
     {
       "parameters": {
@@ -31,12 +48,23 @@
       "name": "Build Message",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [260, 0]
+      "position": [
+        260,
+        0
+      ]
     }
   ],
   "connections": {
     "PostSider Trigger": {
-      "main": [[{ "node": "Build Message", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Build Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": false,
