@@ -4,36 +4,49 @@ All notable changes to this project will be documented in this file.
 
 ## 0.3.2 - 2026-11-14
 
-Changes made for the n8n verification review.
+Changes made for the n8n verification review, and to make every operation of node version 2 work on PostSider Cloud (api.postsider.com).
+
+### Removed
+
+These operations are no longer in node version 2, because the production API has no routes for them (the node answered 404 "Cannot GET ..."). Version 1 nodes are unchanged and still list them, but PostSider Cloud does not offer them. A version 2 node that still reaches one through an expression stops with "The operation '<resource> > <operation>' is not available in this node version".
+
+- Approval > Get Many, Approve and Reject (`/approvals`). Approval > Request and Get Status stay.
+- The whole Policy resource: Check and Get Many Rules (`/policies`).
+- Group > Create, Rename and Archive (`/customers`). Group > Get Many stays.
+- The fields that only served them, the "Requires PostSider server 2026-11 or newer" notes, and the group list load method (no node version uses it any more).
 
 ### Changed
 
 Moved or renamed fields. Saved version 2 workflows and PostSider Trigger nodes created with 0.3.0 or 0.3.1 must set these fields again.
 
-- Approval > Get Many (version 2): Status and Requested Since moved into a Filters collection (`approvalFilters`). Without a Status filter all approvals are returned (before, the default was Pending).
-- Approval > Approve and Reject (version 2): Note moved into an Additional Fields collection (`approvalAdditionalFields`).
+- Post > Retry Failed (version 2): retries one post by its Post ID (`POST /posts/:id/retry`) instead of a whole group. The field Post Group ID (`postGroup`) is gone; the field is now Post ID (`postId`). Only a post in the Error state can be retried, its channel must be connected and publishing must not be paused. The output is exactly one item with `postId`, `state`, `publishDate`, `releaseURL`, `error` and `errorCode` (null when missing). The server answers with the whole post including the channel, and the channel carries its access tokens, so nothing else from that response is ever returned.
 - Channel > Get Many (version 2): Group and Include Disabled moved into a Filters collection (`channelFilters`, fields `groupId` and `includeDisabled`).
 - Media > Get Many (version 2): Page removed. Return All and Limit added; Search moved into a Filters collection (`mediaFilters`, field `search`). Pages are fetched until the limit is met, or all of them with Return All, at most 50 pages (900 files).
 - Publishing > Pause (version 2): Reason moved into an Additional Fields collection (`pauseAdditionalFields`).
 - Post > Check (version 2): Has Media and Media Type replaced by Options > Media Type (`checkOptions`, field `mediaType`: Image, Mixed, None, Video; default None).
-- Post > Retry Failed (version 2): the field is now called Post Group ID (same parameter, `postGroup`).
-- Group > Rename and Group > Archive (version 2): Group ID is now a list, Group Name or ID (same parameter, `targetGroupId`; a stored ID still works).
 - Channel > Get Options (version 2): the key of List Inputs is shown as Field Name (same parameter).
 - PostSider Trigger: Events is now called Trigger On and is required. Channel Names or IDs moved into Options (`options`, field `channels`).
 - Post > Delete (version 2) returns `{ "postId": "...", "deleted": true }` and says that it deletes the post on every channel it was created for.
 - Post > Get Many (version 2) state filter adds Awaiting Approval and Held.
 - Operation labels no longer contain articles (for example "Get post"), in both node versions.
 - Dates: error messages name the field (for example 'Start Date'), and the offsets `Z`, `+HH:MM`, `+HHMM` and `+HH` are accepted. A date without a time zone is still read as UTC.
-- Descriptions and error messages put the names of fields in single quotes; operation descriptions name the required API key scopes (`channels:write` for Get Options, `posts:write` for Check and Rewrite, with the 409 and 402 AI errors).
+- Descriptions and error messages put the names of fields in single quotes. Post > Check and Post > Rewrite describe the 409 (no AI key) and 402 (AI quota used up) errors.
+- Scope names (`posts:write`, `channels:write`, `approvals:decide`, `policies:read` and so on) are removed from the descriptions and the README: organization API keys have no scopes on PostSider Cloud and act with full access to the organization. The README explains this under Credentials.
 - Codex files no longer declare `subcategories`.
 - The credential documentation link points to docs.postsider.com/security/authentication.
-- Version 1 nodes are unchanged, except for operation label and error message wording, the idempotency key of Post Create (below), the media URL pre-check (below) and error handling.
+- Version 1 nodes are unchanged, except for operation label and error message wording, the idempotency key of Post Create (below), Media > Import From URL (no extension check, below), the removed scope names, and error handling.
+- The Idempotency Key fields (both node versions) now say that PostSider remembers a key permanently for the organization (keys never expire), that reusing it returns the first result, and that it fails if the request is different. The derived key comments no longer say 7 days.
 
 ### Added
 
-- Public media URLs are checked before any request, with the same rule as the server: HTTPS, and a path that ends in a lowercase `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.mp4`, `.webm` or `.mov` (a query string is allowed). This also applies to version 1 Media > Import From URL.
+- Public media URLs are checked before any request for HTTPS and no credentials only. PostSider detects the file type from the file itself, so a URL does not need a file extension (`.JPG`, `?w=800` and no extension at all are accepted). This also applies to version 1 Media > Import From URL.
+- Binary uploads are checked before anything is sent: an image over 10 MB or a video over 500 MB (the limits of every PostSider upload route) stops the node with an error that names the file and the limit. All files are checked before the first one is uploaded.
+- The credential removes an accidental leading `Bearer ` (and surrounding spaces) from the API key, because PostSider only accepts the bare key. The API Key field says to paste it without `Bearer`.
+- Errors with a `{ "msg": "..." }` body, which is what most PostSider errors look like, now show that message as the error description. n8n's status message (for example "Bad request - please check your parameters") and the HTTP status stay. A 429 keeps its status and Retry-After, so Wait for Result still pauses and retries.
+- Posts keep `error` and `errorCode` when simplified (Post > Get and Get Many), and PostSider Trigger items include `errorCode` next to `error`.
 - Post > Check, Post > Rewrite and Channel > Get Options wait up to 120 seconds (other requests still 30 seconds).
-- A server that does not know a route (404 "Cannot GET /public/v1/...") now gives "This operation is not available on this PostSider server" with a hint to update the server to 2026-11 or newer.
+- A server that does not know a route (404 "Cannot GET /public/v1/...") now gives "This operation is not available on this PostSider server" with the description "The PostSider server you are connected to does not offer this feature."
+- Example `examples/draft-and-request-approval.json` (Post > Publish as a draft, then Approval > Request) replaces `approval-notify-slack.json`, which used Approval > Get Many.
 
 ### Fixed
 

@@ -1,6 +1,6 @@
 /* eslint-disable @n8n/community-nodes/no-restricted-imports, @typescript-eslint/no-explicit-any */
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 
@@ -76,4 +76,38 @@ test('no source file or description says that keys are kept for a number of days
 	assert.doesNotMatch(idempotency, /7 days/);
 	assert.match(idempotency, /never expires/);
 	assert.doesNotMatch(JSON.stringify([...fieldProperties, ...v2Properties]), /idempotency[^"]*\d+ days|days[^"]*idempotency/i);
+});
+
+// ---- README, CHANGELOG and examples agree with the code ----
+
+const read = (file: string) => readFileSync(path.join(import.meta.dirname, '..', file), 'utf8');
+
+test('the README lists every example file and none that is gone', () => {
+	const readme = read('README.md');
+	const files = readdirSync(path.join(import.meta.dirname, '..', 'examples')).filter((f) => f.endsWith('.json'));
+	for (const file of files) assert.ok(readme.includes(`examples/${file}`), file);
+	assert.equal(readme.includes('approval-notify-slack'), false);
+	assert.ok(files.includes('draft-and-request-approval.json'));
+	assert.equal(files.includes('approval-notify-slack.json'), false);
+});
+
+test('the README and CHANGELOG match the production API', () => {
+	const readme = read('README.md');
+	const changelog = read('CHANGELOG.md');
+	const section = changelog.slice(changelog.indexOf('## 0.3.2'), changelog.indexOf('## 0.3.1'));
+	for (const text of [readme, section]) assert.doesNotMatch(text, /[\u2013\u2014]/, 'no em or en dashes');
+	// the README no longer tells anyone to pick scopes or update the server; the CHANGELOG may name what it removed
+	assert.doesNotMatch(readme, /posts:write|channels:write|approvals:decide|policies:read|posts:read/);
+	assert.doesNotMatch(readme, /2026-11/);
+	assert.doesNotMatch(readme, /Required API key scopes/);
+	assert.match(readme, /full access to the organization/);
+	assert.match(readme, /images up to 10 MB and videos up to 500 MB/i);
+	assert.match(readme, /does not need a file extension/);
+	assert.match(readme, /request size limit/);
+	assert.match(readme, /Post ID/);
+	assert.doesNotMatch(readme, /Post Group ID/);
+	assert.match(readme, /Version 1 nodes still list Approval Get Many, Approve and Reject, the Policy resource, and Group Create, Rename and Archive/);
+	assert.match(section, /### Removed/);
+	assert.match(section, /Post Group ID \(`postGroup`\) is gone/);
+	assert.doesNotMatch(section, /supported lowercase|approvalFilters|approvalAdditionalFields/);
 });
