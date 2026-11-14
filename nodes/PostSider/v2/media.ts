@@ -1,6 +1,7 @@
-import type { IDataObject, IExecuteFunctions, IHttpRequestMethods } from 'n8n-workflow';
+import type { IDataObject, IExecuteFunctions, IHttpRequestMethods, INode } from 'n8n-workflow';
 import { NodeOperationError } from 'n8n-workflow';
 
+import { assertMediaUrl } from '../shared/mediaUrl';
 import type { PostSiderMedia } from '../shared/payloads';
 import type { RequestInput } from '../shared/transport';
 
@@ -13,12 +14,12 @@ export type ApiCall = <T>(
 export const BASE64_MAX_BYTES = 20 * 1024 * 1024;
 const UPLOAD_TIMEOUT_MS = 120000;
 
-export function toMedia(response: unknown): PostSiderMedia {
+export function toMedia(node: INode, response: unknown): PostSiderMedia {
 	const raw = (response ?? {}) as Record<string, unknown>;
 	const id = String(raw.id ?? '');
 	const path = String(raw.path ?? '');
 	if (!id || !path) {
-		throw new Error('Upload response did not include a media id and path');
+		throw new NodeOperationError(node, 'The upload response did not include a media ID and path');
 	}
 	const media: PostSiderMedia = { id, path };
 	for (const key of ['name', 'thumbnail', 'alt']) {
@@ -27,13 +28,18 @@ export function toMedia(response: unknown): PostSiderMedia {
 	return media;
 }
 
-export async function uploadFromUrls(api: ApiCall, urls: string[]): Promise<PostSiderMedia[]> {
+export async function uploadFromUrls(
+	node: INode,
+	api: ApiCall,
+	urls: string[],
+): Promise<PostSiderMedia[]> {
 	const media: PostSiderMedia[] = [];
+	for (const url of urls) assertMediaUrl(node, url, 'Media URLs');
 	for (const url of urls) {
 		const response = await api<unknown>('POST', '/upload-from-url', {
 			body: { url } as IDataObject,
 		});
-		media.push(toMedia(response));
+		media.push(toMedia(node, response));
 	}
 	return media;
 }
@@ -72,7 +78,7 @@ export async function uploadBinaries(
 			);
 			response = await api<unknown>('POST', '/upload', { formData, timeout: UPLOAD_TIMEOUT_MS });
 		}
-		media.push(toMedia(response));
+		media.push(toMedia(ctx.getNode(), response));
 	}
 	return media;
 }

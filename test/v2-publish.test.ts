@@ -237,6 +237,8 @@ test('executor publishes per item, fetches integrations once and wraps unknown c
 			getInputData: () => [{ json: {} }, { json: {} }],
 			getNodeParameter: (name: string, _i: number, fallback?: unknown) => params[name] ?? fallback,
 			getExecutionId: () => 'ex1',
+			getWorkflow: () => ({ id: 'wf1', active: false }),
+			getInstanceId: () => 'inst1',
 			getCredentials: async () => ({ apiKey: 'k', baseUrl: 'https://api.postsider.com' }),
 			continueOnFail: () => continueOnFail,
 			getNode: () => testNode,
@@ -254,8 +256,8 @@ test('executor publishes per item, fetches integrations once and wraps unknown c
 	const ok = await run(['c1']);
 	assert.equal(ok[0].length, 2);
 	assert.equal(requests.filter((r) => String(r.url).endsWith('/integrations')).length, 1);
-	assert.equal((requests[1].headers as any)['Idempotency-Key'], 'n8n:ex1:PostSider:run0:item:0');
-	assert.equal((requests[2].headers as any)['Idempotency-Key'], 'n8n:ex1:PostSider:run0:item:1');
+	assert.match((requests[1].headers as any)['Idempotency-Key'], /^n8n:[0-9a-f]{12}:[0-9a-f]{12}:ex1:PostSider:run0:item:0$/);
+	assert.match((requests[2].headers as any)['Idempotency-Key'], /^n8n:[0-9a-f]{12}:[0-9a-f]{12}:ex1:PostSider:run0:item:1$/);
 	assert.equal(ok[0][0].json.state, 'DRAFT');
 	await assert.rejects(() => run(['nope']), /Channel nope is not connected to this PostSider workspace/);
 	const soft = await run(['nope'], true);
@@ -335,6 +337,8 @@ async function runExecutor(
 		getInputData: () => [{ json: {} }],
 		getNodeParameter: (name: string, _i: number, fallback?: unknown) => params[name] ?? fallback,
 		getExecutionId: () => 'ex1',
+		getWorkflow: () => ({ id: 'wf1', active: false }),
+		getInstanceId: () => 'inst1',
 		getCredentials: async () => ({ apiKey: 'k', baseUrl: 'https://api.postsider.com' }),
 		continueOnFail: () => false,
 		getNode: () => testNode,

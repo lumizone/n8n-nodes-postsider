@@ -9,6 +9,8 @@ import type {
 } from 'n8n-workflow';
 import { NodeOperationError } from 'n8n-workflow';
 
+import { missingRouteError } from './errors';
+
 type PostSiderFunctions = IExecuteFunctions | ILoadOptionsFunctions | IPollFunctions;
 
 export interface RequestInput {
@@ -82,9 +84,13 @@ export async function postSiderApiRequest<T = IDataObject>(
 	const credentials = await this.getCredentials('postSiderApi');
 	const baseUrl = normalizeApiBaseUrl(this.getNode(), String(credentials.baseUrl));
 	const options = buildRequestOptions(method, `${baseUrl}${endpoint}`, input);
-	return (await this.helpers.httpRequestWithAuthentication.call(
-		this,
-		'postSiderApi',
-		options,
-	)) as T;
+	try {
+		return (await this.helpers.httpRequestWithAuthentication.call(
+			this,
+			'postSiderApi',
+			options,
+		)) as T;
+	} catch (error) {
+		throw missingRouteError(this.getNode(), error) ?? error;
+	}
 }

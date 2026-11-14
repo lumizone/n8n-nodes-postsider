@@ -122,6 +122,8 @@ function makeCtx(params: Record<string, unknown>, responses: unknown[]) {
 	const ctx = {
 		getNodeParameter: (name: string, _i: number, fallback?: unknown) => params[name] ?? fallback,
 		getExecutionId: () => 'exT',
+		getWorkflow: () => ({ id: 'wf1', active: false }),
+		getInstanceId: () => 'inst1',
 		getCredentials: async () => ({ apiKey: 'k', baseUrl: 'https://api.postsider.com' }),
 		getNode: () => testNode,
 		getWorkflowDataProxy: () => ({ $runIndex: 0 }),
@@ -357,6 +359,8 @@ function execCtx(params: Record<string, unknown>, responses: unknown[]) {
 		getInputData: () => [{ json: {} }],
 		getNodeParameter: (name: string, _i: number, fallback?: unknown) => params[name] ?? fallback,
 		getExecutionId: () => 'ex1',
+		getWorkflow: () => ({ id: 'wf1', active: false }),
+		getInstanceId: () => 'inst1',
 		getCredentials: async () => ({ apiKey: 'k', baseUrl: 'https://api.postsider.com' }),
 		continueOnFail: () => false,
 		getNode: () => testNode,

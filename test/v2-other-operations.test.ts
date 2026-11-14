@@ -138,6 +138,8 @@ function makeContext(params: Record<string, unknown>, responses: unknown[], extr
 		getInputData: () => [{ json: {}, binary: (extra.binary as any) ?? {} }],
 		getNodeParameter: (name: string, _i: number, fallback?: unknown) => params[name] ?? fallback,
 		getExecutionId: () => 'ex1',
+		getWorkflow: () => ({ id: 'wf1', active: false }),
+		getInstanceId: () => 'inst1',
 		getCredentials: async () => ({ apiKey: 'k', baseUrl: 'https://api.postsider.com' }),
 		continueOnFail: () => false,
 		getNode: () => ({ ...testNode, typeVersion: 2 }),
@@ -196,7 +198,10 @@ test('executor: v2 approve reads the approval then sends a stage bound decision'
 	assert.equal(requests.length, 2);
 	assert.equal(requests[0].method, 'GET');
 	assert.deepEqual(requests[1].body, { note: 'ok', expectStage: 2 });
-	assert.match(String(requests[1].headers['Idempotency-Key']), /^n8n:ex1:PostSider:item:0:[0-9a-f]{32}$/);
+	assert.match(
+		String(requests[1].headers['Idempotency-Key']),
+		/^n8n:[0-9a-f]{12}:[0-9a-f]{12}:ex1:PostSider:item:0:[0-9a-f]{32}$/,
+	);
 });
 
 test('executor: v2 approval getMany maps the Status filter to status and pages', async () => {

@@ -46,8 +46,8 @@ function listRange(node: INode, params: IDataObject, now: Date): IDataObject {
 		if (!from || !to) {
 			throw new NodeOperationError(node, 'Custom range needs both a start date and an end date');
 		}
-		start = normalizeScheduledDate(node, from);
-		end = normalizeScheduledDate(node, to);
+		start = normalizeScheduledDate(node, from, 'Start Date');
+		end = normalizeScheduledDate(node, to, 'End Date');
 	} else {
 		start = now.toISOString();
 		end = new Date(now.getTime() + 7 * DAY_MS).toISOString();
@@ -66,7 +66,7 @@ function buildUpdateBody(node: INode, params: IDataObject): IDataObject {
 	const body: IDataObject = {};
 	if (has(params.text)) body.content = String(params.text);
 	if (has(params.date) && String(params.date).trim() !== '') {
-		body.date = normalizeScheduledDate(node, String(params.date).trim());
+		body.date = normalizeScheduledDate(node, String(params.date).trim(), 'Date');
 	}
 	if (has(params.firstComment)) {
 		const comment = String(params.firstComment);
@@ -160,7 +160,7 @@ export function buildPostRequest(
 			const channelId = String(params.channelId ?? '').trim();
 			if (channelId) body.channelId = channelId;
 			const date = String(params.date ?? '').trim();
-			if (date) body.date = normalizeScheduledDate(node, date);
+			if (date) body.date = normalizeScheduledDate(node, date, 'Date');
 			return {
 				method: 'POST',
 				endpoint: `/posts/${encodedId(node, params, 'postId', 'Post ID')}/duplicate`,
@@ -227,12 +227,15 @@ export function buildUpdateSettings(
 }
 
 /** The provider of an existing post, read from `GET /posts/:id`. */
-export function providerOfPost(detail: unknown): string {
+export function providerOfPost(node: INode, detail: unknown): string {
 	const posts = (detail as { posts?: Array<{ integration?: { providerIdentifier?: unknown } }> } | undefined)
 		?.posts;
 	const provider = posts?.[0]?.integration?.providerIdentifier;
 	if (typeof provider !== 'string' || !provider) {
-		throw new Error('Could not read the channel provider of this post, so platform settings cannot be applied');
+		throw new NodeOperationError(
+			node,
+			'Could not read the channel provider of this post, so platform settings cannot be applied',
+		);
 	}
 	return provider;
 }
@@ -247,6 +250,8 @@ function asObject(value: unknown): IDataObject {
 export function shapePostOutput(operation: string, response: unknown, params: IDataObject): IDataObject[] {
 	const normalized = normalizePostResponse(response);
 	const simplify = params.simplify === undefined ? true : Boolean(params.simplify);
+	// The backend deletes the whole post group and answers with the group; n8n expects `deleted: true`.
+	if (operation === 'delete') return [{ postId: String(params.postId ?? ''), deleted: true }];
 	if (operation === 'getMany') {
 		const raw =
 			normalized && typeof normalized === 'object' && !Array.isArray(normalized)
@@ -418,7 +423,7 @@ async function executeUpdate(
 		);
 		const storedSettings = (detail as { settings?: unknown } | undefined)?.settings;
 		params.settings = buildUpdateSettings(
-			providerOfPost(detail),
+			providerOfPost(node, detail),
 			platform,
 			settingsJson,
 			storedSettings && typeof storedSettings === 'object' && !Array.isArray(storedSettings)
@@ -427,7 +432,7 @@ async function executeUpdate(
 		);
 	}
 	if (mediaSource === 'binary') params.images = await uploadBinaries(ctx, api, index, binaryNames);
-	else if (mediaSource === 'url') params.images = await uploadFromUrls(api, mediaUrls);
+	else if (mediaSource === 'url') params.images = await uploadFromUrls(node, api, mediaUrls);
 
 	const request = buildPostRequest(node, 'update', params, new Date());
 	const response = await api<unknown>(request.method, request.endpoint, request.input);

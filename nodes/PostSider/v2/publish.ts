@@ -9,6 +9,8 @@ import {
 	type PostSiderMedia,
 	type PostSiderTag,
 } from '../shared/payloads';
+import { httpStatusOf, retryAfterMsOf } from '../shared/errors';
+import { executionScope, runIndexOf } from '../shared/idempotency';
 import { nodeToken, validateIdempotencyKey, type OperationRequest } from '../shared/operations';
 import { postSiderApiRequest } from '../shared/transport';
 import { parseIdList, parseMediaJson, parseUrlList } from './inputs';
@@ -77,13 +79,6 @@ function rememberAttempt(key: string, entry: RetryCacheEntry): void {
 	}
 }
 
-/** Integer HTTP status of an error: `statusCode` on plain errors, `httpCode` (string) on NodeApiError. */
-function httpStatusOf(error: unknown): number | undefined {
-	const raw = error as { statusCode?: unknown; httpCode?: unknown } | undefined;
-	const status = Number(raw?.statusCode ?? raw?.httpCode);
-	return Number.isInteger(status) ? status : undefined;
-}
-
 export function clampWaitSeconds(timeoutSeconds: number): number {
 	return Math.min(
 		WAIT_MAX_SECONDS,
@@ -94,15 +89,15 @@ export function clampWaitSeconds(timeoutSeconds: number): number {
 export function defaultIdempotencyKey(
 	node: INode,
 	supplied: string,
-	executionId: string,
+	/** `executionScope(ctx)`: instance, workflow and execution. */
+	scope: string,
 	itemIndex: number,
 	runIndex = 0,
 ): string {
 	const token = nodeToken(node.name);
 	return validateIdempotencyKey(
 		node,
-		supplied.trim() ||
-			`n8n:${executionId}:${token ? `${token}:` : ''}run${runIndex}:item:${itemIndex}`,
+		supplied.trim() || `n8n:${scope}:${token ? `${token}:` : ''}run${runIndex}:item:${itemIndex}`,
 	);
 }
 
@@ -116,7 +111,7 @@ export function resolvePublishDate(
 	if (when === 'schedule') {
 		const value = String(date ?? '').trim();
 		if (!value) throw new NodeOperationError(node, 'Date is required to schedule a post');
-		return normalizeScheduledDate(node, value);
+		return normalizeScheduledDate(node, value, 'Date');
 	}
 	if (when === 'nextSlot') {
 		const slotDate = (slot as { date?: unknown } | undefined)?.date;
@@ -124,7 +119,7 @@ export function resolvePublishDate(
 			throw new NodeOperationError(node, 'PostSider returned no free slot for this channel');
 		}
 		// find-slot returns a zone-less UTC wall-clock string; normalize treats it as UTC.
-		return normalizeScheduledDate(node, slotDate);
+		return normalizeScheduledDate(node, slotDate, 'Next Free Slot');
 	}
 	return now.toISOString();
 }
@@ -283,6 +278,8 @@ export async function waitForResult(
 		!FINAL_STATES.has(String(row.state)) && row.approvalRequested !== true && !!row.postId;
 	let elapsed = 0;
 	for (;;) {
+		// Set when PostSider answers 429: the next round waits at least this long.
+		let rateLimitWaitMs = 0;
 		for (const row of result.filter(isPending)) {
 			try {
 				const detail = await api<{ group?: string; posts?: Array<Record<string, unknown>> }>(
@@ -298,6 +295,11 @@ export async function waitForResult(
 				if (post.error) row.error = String(post.error);
 			} catch (error) {
 				const status = httpStatusOf(error);
+				if (status === 429) {
+					// Too many requests is not a failed post. Stop polling this round and wait it out.
+					rateLimitWaitMs = Math.max(intervalMs, retryAfterMsOf(error) ?? 0);
+					break;
+				}
 				if (status !== undefined && status >= 400 && status < 500) {
 					const message = (error as Error).message;
 					for (const pending of result.filter(isPending)) pending.pollError = message;
@@ -307,12 +309,13 @@ export async function waitForResult(
 			}
 		}
 		if (!result.some(isPending)) return result;
-		if (elapsed + intervalMs > limitMs) {
+		const waitMs = Math.max(intervalMs, rateLimitWaitMs);
+		if (elapsed + waitMs > limitMs) {
 			for (const row of result.filter(isPending)) row.timedOut = true;
 			return result;
 		}
-		await sleepFn(intervalMs);
-		elapsed += intervalMs;
+		await sleepFn(waitMs);
+		elapsed += waitMs;
 	}
 }
 
@@ -423,7 +426,7 @@ export async function executePublish(
 	const idempotencyKey = defaultIdempotencyKey(
 		node,
 		String(options.idempotencyKey ?? ''),
-		ctx.getExecutionId(),
+		executionScope(ctx),
 		index,
 		runIndexOf(ctx, index),
 	);
@@ -468,7 +471,7 @@ export async function executePublish(
 		date = cached.date;
 	} else {
 		if (mediaSource === 'binary') media = await uploadBinaries(ctx, api, index, binaryNames);
-		else if (mediaSource === 'url') media = await uploadFromUrls(api, mediaUrls);
+		else if (mediaSource === 'url') media = await uploadFromUrls(node, api, mediaUrls);
 
 		let slot: unknown;
 		if (when === 'nextSlot') {
@@ -518,13 +521,4 @@ export async function executePublish(
 		}
 	}
 	return rows;
-}
-
-function runIndexOf(ctx: IExecuteFunctions, index: number): number {
-	try {
-		const run = ctx.getWorkflowDataProxy(index).$runIndex;
-		return typeof run === 'number' ? run : 0;
-	} catch {
-		return 0;
-	}
 }

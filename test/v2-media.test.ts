@@ -24,6 +24,7 @@ function recorder(calls: Call[]) {
 
 function fakeCtx(binaries: Record<string, { buffer: Buffer; mimeType: string; fileName?: string }>) {
 	return {
+		getNode: () => testNode,
 		helpers: {
 			assertBinaryData: (_i: number, name: string) => {
 				const b = binaries[name];
@@ -52,9 +53,9 @@ test('parseUrlList requires public HTTPS URLs without credentials', () => {
 		'https://a.example/x.png',
 		'https://b.example/y.png',
 	]);
-	assert.throws(() => parseUrlList(testNode, 'http://a.example/x.png'), /Media URLs must be public HTTPS URLs/);
-	assert.throws(() => parseUrlList(testNode, 'https://u:p@h.example/x.png'), /Media URLs must be public HTTPS URLs/);
-	assert.throws(() => parseUrlList(testNode, 'not a url'), /Media URLs must be public HTTPS URLs/);
+	assert.throws(() => parseUrlList(testNode, 'http://a.example/x.png'), /'Media URLs' must be public HTTPS URLs/);
+	assert.throws(() => parseUrlList(testNode, 'https://u:p@h.example/x.png'), /'Media URLs' must be public HTTPS URLs/);
+	assert.throws(() => parseUrlList(testNode, 'not a url'), /'Media URLs' must be public HTTPS URLs/);
 });
 
 test('parseMediaJson validates id and path', () => {
@@ -66,21 +67,21 @@ test('parseMediaJson validates id and path', () => {
 });
 
 test('toMedia keeps known fields and rejects incomplete responses', () => {
-	assert.deepEqual(toMedia({ id: '1', path: 'p', name: 'n', thumbnail: 't', alt: 'a', extra: 1 }), {
+	assert.deepEqual(toMedia(testNode, { id: '1', path: 'p', name: 'n', thumbnail: 't', alt: 'a', extra: 1 }), {
 		id: '1',
 		path: 'p',
 		name: 'n',
 		thumbnail: 't',
 		alt: 'a',
 	});
-	assert.deepEqual(toMedia({ id: '1', path: 'p' }), { id: '1', path: 'p' });
-	assert.throws(() => toMedia({ id: '1' }));
-	assert.throws(() => toMedia(null));
+	assert.deepEqual(toMedia(testNode, { id: '1', path: 'p' }), { id: '1', path: 'p' });
+	assert.throws(() => toMedia(testNode, { id: '1' }), NodeOperationError);
+	assert.throws(() => toMedia(testNode, null), NodeOperationError);
 });
 
 test('uploadFromUrls posts each URL sequentially', async () => {
 	const calls: Call[] = [];
-	const media = await uploadFromUrls(recorder(calls), ['https://a.example/1.png', 'https://a.example/2.png']);
+	const media = await uploadFromUrls(testNode, recorder(calls), ['https://a.example/1.png', 'https://a.example/2.png']);
 	assert.equal(media.length, 2);
 	assert.deepEqual(
 		calls.map((c) => [c.method, c.endpoint, c.input?.body]),

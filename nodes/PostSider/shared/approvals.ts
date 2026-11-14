@@ -8,6 +8,7 @@ import {
 	nextCursor,
 	readDecisionBinding,
 } from './operations';
+import { executionScope, runIndexOf } from './idempotency';
 import { postSiderApiRequest } from './transport';
 
 /**
@@ -90,14 +91,10 @@ export async function runControlRequest(
 			// no binding
 		}
 	}
-	const request = buildOperationRequest(
-		ctx.getNode(),
-		resource,
-		operation,
-		parameters,
-		ctx.getExecutionId(),
-		index,
-	);
+	// Computed once: without an execution ID the scope is random and must not change between pages.
+	const scope = executionScope(ctx);
+	if (resource === 'post' && operation === 'create') parameters.runIndex = runIndexOf(ctx, index);
+	const request = buildOperationRequest(ctx.getNode(), resource, operation, parameters, scope, index);
 	if (resource === 'approval' && operation === 'getMany') {
 		const approvals: unknown[] = [];
 		let cursor: string | undefined;
@@ -109,7 +106,7 @@ export async function runControlRequest(
 						resource,
 						operation,
 						{ ...parameters, cursor },
-						ctx.getExecutionId(),
+						scope,
 						index,
 					)
 				: request;

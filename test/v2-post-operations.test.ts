@@ -2,6 +2,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { NodeOperationError } from 'n8n-workflow';
+
 import {
 	buildPostRequest,
 	buildUpdateSettings,
@@ -184,10 +186,10 @@ test('buildUpdateSettings sends only what the user gave, without defaults', () =
 
 test('providerOfPost reads the provider from the post detail', () => {
 	assert.equal(
-		providerOfPost({ posts: [{ id: 'p1', integration: { providerIdentifier: 'youtube' } }] }),
+		providerOfPost(testNode, { posts: [{ id: 'p1', integration: { providerIdentifier: 'youtube' } }] }),
 		'youtube',
 	);
-	assert.throws(() => providerOfPost({ posts: [] }), /provider/);
+	assert.throws(() => providerOfPost(testNode, { posts: [] }), NodeOperationError);
 });
 
 test('get output simplifies by default and passes the raw post otherwise', () => {
@@ -231,7 +233,9 @@ test('getMany outputs one item per post and applies the client side limit', () =
 });
 
 test('other operations return the response as items', () => {
-	assert.deepEqual(shapePostOutput('delete', { id: 'g1' }, {}), [{ id: 'g1' }]);
+	assert.deepEqual(shapePostOutput('delete', { id: 'g1' }, { postId: 'p1' }), [
+		{ postId: 'p1', deleted: true },
+	]);
 	assert.deepEqual(shapePostOutput('retryFailed', { results: [] }, {}), [{ results: [] }]);
 	assert.equal(shapePostOutput('rewrite', [{ text: 'a' }, { text: 'b' }], {}).length, 2);
 });
@@ -267,6 +271,8 @@ async function runExecutor(params: Record<string, unknown>, responses: unknown[]
 		getInputData: () => [{ json: {} }],
 		getNodeParameter: (name: string, _i: number, fallback?: unknown) => params[name] ?? fallback,
 		getExecutionId: () => 'ex1',
+		getWorkflow: () => ({ id: 'wf1', active: false }),
+		getInstanceId: () => 'inst1',
 		getCredentials: async () => ({ apiKey: 'k', baseUrl: 'https://api.postsider.com' }),
 		continueOnFail: () => false,
 		getNode: () => testNode,

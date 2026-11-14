@@ -17,6 +17,7 @@ export interface FakeContextOptions {
 	typeVersion?: number;
 	runIndex?: number;
 	continueOnFail?: boolean;
+	itemCount?: number;
 }
 
 /**
@@ -36,7 +37,7 @@ export function makeFakeContext(
 		typeVersion: options.typeVersion ?? 2,
 	};
 	const context = {
-		getInputData: () => [{ json: {} }],
+		getInputData: () => Array.from({ length: options.itemCount ?? 1 }, () => ({ json: {} })),
 		getNodeParameter: (name: string, _i: number, fallback?: unknown) => params[name] ?? fallback,
 		getExecutionId: () => options.executionId ?? 'ex1',
 		getWorkflow: () => ({ id: options.workflowId ?? 'wf1', active: false }),

@@ -3,6 +3,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { IDataObject, IHttpRequestMethods, INode } from 'n8n-workflow';
 import { NodeOperationError } from 'n8n-workflow';
 
+import { hasMediaExtension, MEDIA_EXTENSIONS } from './mediaUrl';
 import {
 	buildCreatePostBody,
 	normalizeScheduledDate,
@@ -80,7 +81,7 @@ export function validateIdempotencyKey(node: INode, value: string): string {
 function buildCreateRequest(
 	node: INode,
 	parameters: IDataObject,
-	executionId: string,
+	executionScope: string,
 	itemIndex: number,
 	now: () => Date,
 ): OperationRequest {
@@ -96,7 +97,7 @@ function buildCreateRequest(
 			? new Date(
 					Date.UTC(current.getUTCFullYear(), current.getUTCMonth(), current.getUTCDate()),
 				).toISOString()
-			: normalizeScheduledDate(node, publishDate);
+			: normalizeScheduledDate(node, publishDate, 'Publish Date');
 	const collection = (parameters.channelPosts ?? {}) as ChannelPostCollection;
 	const entries = collection.channelPost ?? [];
 	if (entries.length === 0) throw new NodeOperationError(node, 'At least one Channel Post is required');
@@ -115,9 +116,13 @@ function buildCreateRequest(
 	});
 	const tags = parseArray<PostSiderTag>(node, parameters.tagsJson, 'Tags JSON');
 	const suppliedKey = String(parameters.idempotencyKey ?? '').trim();
+	// Bound to the instance, workflow, execution, node, run and item, like the version 2 Publish key.
+	const token = nodeToken(node.name);
+	const runIndex = Number.isInteger(parameters.runIndex) ? Number(parameters.runIndex) : 0;
 	const idempotencyKey = validateIdempotencyKey(
 		node,
-		suppliedKey || `n8n:${executionId}:item:${itemIndex}`,
+		suppliedKey ||
+			`n8n:${executionScope}:${token ? `${token}:` : ''}run${runIndex}:item:${itemIndex}`,
 	);
 	return {
 		method: 'POST',
@@ -167,7 +172,7 @@ export function nodeToken(nodeName: unknown): string {
 }
 
 /**
- * The key is bound to the execution, the node, the item, the approval, the
+ * The key is bound to the instance, workflow and execution (`executionScope`), the node, the item, the approval, the
  * decision, the stage position and the request time. A different stage or a
  * re-requested approval never replays an older answer, and two Approve nodes in
  * one execution never collide. Without a stage binding (the read failed) a
@@ -179,7 +184,7 @@ function decisionKey(
 	parameters: IDataObject,
 	approvalId: string,
 	note: string,
-	executionId: string,
+	executionScope: string,
 	itemIndex: number,
 	position: number | undefined,
 	requestedAt: string | undefined,
@@ -195,7 +200,7 @@ function decisionKey(
 	return {
 		'Idempotency-Key': validateIdempotencyKey(
 			node,
-			`n8n:${executionId}:${token ? `${token}:` : ''}item:${itemIndex}:${tail}`,
+			`n8n:${executionScope}:${token ? `${token}:` : ''}item:${itemIndex}:${tail}`,
 		),
 	};
 }
@@ -204,7 +209,7 @@ export function buildDecisionRequest(
 	node: INode,
 	decision: 'approve' | 'reject',
 	parameters: IDataObject,
-	executionId: string,
+	executionScope: string,
 	itemIndex: number,
 ): OperationRequest {
 	const id = encodedId(node, parameters, 'approvalId', 'Approval ID');
@@ -231,7 +236,7 @@ export function buildDecisionRequest(
 				parameters,
 				requiredString(node, parameters, 'approvalId', 'Approval ID'),
 				note,
-				executionId,
+				executionScope,
 				itemIndex,
 				bound ? position : undefined,
 				bound ? requestedAt : undefined,
@@ -291,7 +296,7 @@ function buildApprovalListRequest(node: INode, parameters: IDataObject): Operati
 		input: {
 			qs: {
 				...(status ? { status } : {}),
-				...(since ? { since: normalizeScheduledDate(node, since) } : {}),
+				...(since ? { since: normalizeScheduledDate(node, since, 'Requested Since') } : {}),
 				limit,
 				...(cursor ? { cursor } : {}),
 			},
@@ -331,7 +336,7 @@ function buildPolicyCheckRequest(node: INode, parameters: IDataObject): Operatio
 		input: {
 			body: {
 				type,
-				...(type === 'schedule' && publishDate ? { date: normalizeScheduledDate(node, publishDate) } : {}),
+				...(type === 'schedule' && publishDate ? { date: normalizeScheduledDate(node, publishDate, 'Publish Date') } : {}),
 				posts,
 			} as unknown as IDataObject,
 		},
@@ -361,7 +366,8 @@ export function buildOperationRequest(
 	resource: string,
 	operation: string,
 	parameters: IDataObject,
-	executionId: string,
+	/** `executionScope(ctx)`: instance, workflow and execution, used in derived Idempotency-Keys. */
+	executionScope: string,
 	itemIndex: number,
 	now: () => Date = () => new Date(),
 ): OperationRequest {
@@ -406,10 +412,10 @@ export function buildOperationRequest(
 	}
 	if (resource === 'approval' && operation === 'getMany') return buildApprovalListRequest(node, parameters);
 	if (resource === 'approval' && (operation === 'approve' || operation === 'reject')) {
-		return buildDecisionRequest(node, operation, parameters, executionId, itemIndex);
+		return buildDecisionRequest(node, operation, parameters, executionScope, itemIndex);
 	}
 	if (resource === 'post' && operation === 'create') {
-		return buildCreateRequest(node, parameters, executionId, itemIndex, now);
+		return buildCreateRequest(node, parameters, executionScope, itemIndex, now);
 	}
 	if (resource === 'post' && operation === 'get') {
 		return {
@@ -456,6 +462,13 @@ export function buildOperationRequest(
 		}
 		if (url.protocol !== 'https:' || url.username || url.password) {
 			throw new NodeOperationError(node, 'URL must be a valid public HTTPS URL');
+		}
+		// Same rule as the backend, so a wrong extension is reported here and not as a plain 400.
+		if (!hasMediaExtension(url.toString())) {
+			throw new NodeOperationError(
+				node,
+				`'URL' must end in a supported file extension: ${MEDIA_EXTENSIONS.join(', ')} (lowercase)`,
+			);
 		}
 		return {
 			method: 'POST',

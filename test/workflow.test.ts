@@ -21,6 +21,8 @@ async function executeMock(run: MockRun) {
 		getNodeParameter: (name: string, _index: number, fallback?: unknown) =>
 			run.parameters[name] ?? fallback,
 		getExecutionId: () => 'execution_123',
+		getWorkflow: () => ({ id: 'wf1', active: false }),
+		getInstanceId: () => 'inst1',
 		getCredentials: async () => ({
 			apiKey: 'secret-test-key',
 			baseUrl: 'https://api.postsider.com',
@@ -66,13 +68,10 @@ test('workflow create draft sends one idempotent request per input item and link
 		],
 	});
 	assert.equal(result.requests.length, 2);
-	assert.deepEqual(
-		result.requests.map((request) => request.headers),
-		[
-			{ 'Idempotency-Key': 'n8n:execution_123:item:0' },
-			{ 'Idempotency-Key': 'n8n:execution_123:item:1' },
-		],
-	);
+	result.requests.forEach((request, item) => {
+		const key = (request.headers as Record<string, string>)['Idempotency-Key'];
+		assert.match(key, new RegExp(`^n8n:[0-9a-f]{12}:[0-9a-f]{12}:execution_123:PostSider:run0:item:${item}$`));
+	});
 	assert.deepEqual(
 		result.output.map((item) => item.pairedItem),
 		[{ item: 0 }, { item: 1 }],
@@ -175,7 +174,7 @@ test('workflow approve reads the approval, then sends one stage bound decision p
 		assert.equal(request.url, 'https://api.postsider.com/public/v1/approvals/appr_1/approve');
 		assert.deepEqual(request.body, { note: 'ok', expectStage: 2 });
 		const key = String((request.headers as Record<string, string>)['Idempotency-Key']);
-		assert.match(key, new RegExp(`^n8n:execution_123:PostSider:item:${item}:[0-9a-f]{32}$`));
+		assert.match(key, new RegExp(`^n8n:[0-9a-f]{12}:[0-9a-f]{12}:execution_123:PostSider:item:${item}:[0-9a-f]{32}$`));
 	}
 	assert.notEqual(
 		(posts[0].headers as Record<string, string>)['Idempotency-Key'],
@@ -195,7 +194,7 @@ test('workflow approve falls back to a nonce key without expectStage when the re
 	assert.deepEqual(post.body, {});
 	assert.match(
 		String((post.headers as Record<string, string>)['Idempotency-Key']),
-		/^n8n:execution_123:PostSider:item:0:nonce-/,
+		/^n8n:[0-9a-f]{12}:[0-9a-f]{12}:execution_123:PostSider:item:0:nonce-/,
 	);
 });
 

@@ -1,6 +1,7 @@
 import type { INode } from 'n8n-workflow';
 import { NodeOperationError } from 'n8n-workflow';
 
+import { assertMediaUrl } from '../shared/mediaUrl';
 import type { PostSiderMedia } from '../shared/payloads';
 
 function splitList(value: unknown): string[] {
@@ -38,22 +39,9 @@ export function parseIdList(node: INode, value: unknown, displayName: string): s
 	return list;
 }
 
-function isPublicHttps(value: string): boolean {
-	try {
-		const url = new URL(value);
-		return url.protocol === 'https:' && !url.username && !url.password;
-	} catch {
-		return false;
-	}
-}
-
 export function parseUrlList(node: INode, value: unknown): string[] {
 	const list = splitList(value);
-	for (const url of list) {
-		if (!isPublicHttps(url)) {
-			throw new NodeOperationError(node, 'Media URLs must be public HTTPS URLs');
-		}
-	}
+	for (const url of list) assertMediaUrl(node, url, 'Media URLs');
 	return list;
 }
 

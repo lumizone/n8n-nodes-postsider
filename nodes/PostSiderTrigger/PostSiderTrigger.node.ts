@@ -4,11 +4,11 @@ import type {
 	INodeTypeDescription,
 	IPollFunctions,
 	INodeExecutionData,
-	JsonObject,
 } from 'n8n-workflow';
-import { NodeApiError, NodeConnectionTypes, NodeOperationError } from 'n8n-workflow';
+import { NodeConnectionTypes } from 'n8n-workflow';
 
 import { getChannels } from '../PostSider/methods/loadOptions';
+import { toNodeError } from '../PostSider/shared/errors';
 import { postSiderApiRequest } from '../PostSider/shared/transport';
 import { extractPosts, newestMatching, pollWindow, selectNewPosts } from './poll';
 
@@ -80,10 +80,7 @@ export class PostSiderTrigger implements INodeType {
 			});
 			posts = extractPosts(response);
 		} catch (error) {
-			if ((error as { statusCode?: number }).statusCode !== undefined) {
-				throw new NodeApiError(this.getNode(), error as JsonObject);
-			}
-			throw new NodeOperationError(this.getNode(), error as Error);
+			throw toNodeError(this.getNode(), error);
 		}
 
 		if (manual) {

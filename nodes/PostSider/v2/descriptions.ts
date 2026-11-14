@@ -117,7 +117,7 @@ const operationProperties: INodeProperties[] = [
 				value: 'getOptions',
 				action: "List options from a channel's platform",
 				description:
-					'List values such as Pinterest boards or Discord and Slack channels, to use in platform settings or Settings JSON',
+					'List values such as Pinterest boards or Discord and Slack channels, to use in platform settings or Settings JSON. Needs the channels:write scope.',
 			},
 			{
 				name: 'Get Rules',
@@ -215,13 +215,15 @@ const operationProperties: INodeProperties[] = [
 				name: 'Check',
 				value: 'check',
 				action: 'Check a post before publishing',
-				description: 'Validate post text against channel rules without creating the post',
+				description:
+					'Validate post text against channel rules without creating the post. Needs the posts:write scope. Fails with 409 when no AI key is configured and 402 when the AI quota is used up.',
 			},
 			{
 				name: 'Delete',
 				value: 'delete',
-				action: 'Delete a post',
-				description: 'Delete a post. This cannot be undone.',
+				action: 'Delete post and its channel versions',
+				description:
+					'Delete the post and every channel version created with it. This cannot be undone.',
 			},
 			{
 				name: 'Duplicate',
@@ -265,7 +267,8 @@ const operationProperties: INodeProperties[] = [
 				name: 'Rewrite',
 				value: 'rewrite',
 				action: 'Rewrite a post for a channel',
-				description: 'Rewrite post text to fit the rules and style of a channel',
+				description:
+					'Rewrite post text to fit the rules and style of a channel. Needs the posts:write scope. Fails with 409 when no AI key is configured and 402 when the AI quota is used up.',
 			},
 			{
 				name: 'Update',
@@ -843,8 +846,10 @@ const postOperationFields: INodeProperties[] = [
 				type: 'options',
 				options: [
 					{ name: 'Any', value: 'any' },
+					{ name: 'Awaiting Approval', value: 'APPROVAL' },
 					{ name: 'Draft', value: 'DRAFT' },
 					{ name: 'Error', value: 'ERROR' },
+					{ name: 'Held', value: 'HELD' },
 					{ name: 'Published', value: 'PUBLISHED' },
 					{ name: 'Queue', value: 'QUEUE' },
 				],
@@ -1108,7 +1113,8 @@ const otherFields: INodeProperties[] = [
 				name: 'since',
 				type: 'dateTime',
 				default: '',
-				description: 'Only return approvals requested at or after this time',
+				description:
+					'Only return approvals requested at or after this time (UTC when no time zone is given)',
 			},
 			{
 				displayName: 'Status',

@@ -58,7 +58,7 @@ test('post create generates a retry-safe idempotency key and draft date', () => 
 	);
 	assert.equal(request.method, 'POST');
 	assert.equal(request.endpoint, '/posts');
-	assert.deepEqual(request.input.headers, { 'Idempotency-Key': 'n8n:exec_123:item:2' });
+	assert.deepEqual(request.input.headers, { 'Idempotency-Key': 'n8n:exec_123:PostSider:run0:item:2' });
 	assert.deepEqual(request.input.body, {
 		type: 'draft',
 		date: '2026-10-01T00:00:00.000Z',

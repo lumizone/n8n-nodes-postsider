@@ -246,7 +246,7 @@ const fieldPropertiesBase: INodeProperties[] = [
 		name: 'since',
 		type: 'dateTime',
 		default: '',
-		description: 'Only return approvals requested at or after this time',
+		description: 'Only return approvals requested at or after this time (UTC when no time zone is given)',
 		displayOptions: { show: { resource: ['approval'], operation: ['getMany'] } },
 	},
 	{

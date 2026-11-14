@@ -69,11 +69,36 @@ export function buildCreatePostBody(input: CreatePostInput): CreatePostBody {
 	};
 }
 
-export function normalizeScheduledDate(node: INode, value: string): string {
-	const hasTimeZone = /(?:Z|[+-]\d{2}:\d{2})$/i.test(value);
-	const parsed = new Date(hasTimeZone ? value : `${value}Z`);
+// A time zone only counts after a time of day, so the "-10" of a plain date is never read as an offset.
+const DATE_WITH_ZONE =
+	/^(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)(Z|[+-]\d{2}(?::?\d{2})?)$/i;
+
+/**
+ * Turns an ISO 8601 date and time into a UTC ISO string. Time zones `Z`, `+HH:MM`, `+HHMM` and `+HH` are
+ * understood; a value without a time zone is read as UTC. `fieldName` is the display name of the field
+ * the value came from and is used in the error message.
+ */
+export function normalizeScheduledDate(
+	node: INode,
+	value: string,
+	fieldName = 'Publish Date',
+): string {
+	const text = value.trim();
+	const match = DATE_WITH_ZONE.exec(text);
+	let candidate = `${text}Z`;
+	if (match) {
+		const base = match[1].replace(' ', 'T');
+		const zone = match[2];
+		if (zone.toUpperCase() === 'Z') {
+			candidate = `${base}Z`;
+		} else {
+			const digits = zone.slice(1).replace(':', '');
+			candidate = `${base}${zone[0]}${digits.slice(0, 2)}:${digits.slice(2) || '00'}`;
+		}
+	} else if (/(?:Z|[+-]\d{2}:\d{2})$/i.test(text)) candidate = text;
+	const parsed = new Date(candidate);
 	if (Number.isNaN(parsed.getTime())) {
-		throw new NodeOperationError(node, 'Publish Date must be a valid ISO 8601 date and time');
+		throw new NodeOperationError(node, `'${fieldName}' must be a valid ISO 8601 date and time`);
 	}
 	return parsed.toISOString();
 }

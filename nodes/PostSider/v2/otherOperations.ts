@@ -8,6 +8,7 @@ import {
 	normalizePostResponse,
 	type OperationRequest,
 } from '../shared/operations';
+import { executionScope } from '../shared/idempotency';
 import { postSiderApiRequest, SLOW_REQUEST_TIMEOUT_MS } from '../shared/transport';
 import { parseIdList, parseUrlList } from './inputs';
 import { uploadBinaries, uploadFromUrls, type ApiCall } from './media';
@@ -229,7 +230,7 @@ async function executeUpload(ctx: IExecuteFunctions, index: number): Promise<IDa
 		if (urls.length === 0) {
 			throw new NodeOperationError(node, 'Media URLs must list at least one URL', { itemIndex: index });
 		}
-		media = await uploadFromUrls(api, urls);
+		media = await uploadFromUrls(node, api, urls);
 	} else {
 		const names = parseIdList(
 			node,
@@ -296,7 +297,7 @@ export async function executeOtherOperation(
 		const files = await fetchMediaFiles(ctx, params);
 		return shapeOtherOutput(resource, operation, files, params);
 	}
-	const request = buildOtherRequest(node, resource, operation, params, ctx.getExecutionId(), index);
+	const request = buildOtherRequest(node, resource, operation, params, executionScope(ctx), index);
 	const response = await postSiderApiRequest.call(ctx, request.method, request.endpoint, request.input);
 	return shapeOtherOutput(resource, operation, response, params);
 }

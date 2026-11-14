@@ -20,6 +20,8 @@ function makeCtx(params: Record<string, unknown>, responses: unknown[], executio
 	const ctx = {
 		getNodeParameter: (name: string, _i: number, fallback?: unknown) => params[name] ?? fallback,
 		getExecutionId: () => executionId,
+		getWorkflow: () => ({ id: 'wf1', active: false }),
+		getInstanceId: () => 'inst1',
 		getCredentials: async () => ({ apiKey: 'k', baseUrl: 'https://api.postsider.com' }),
 		getNode: () => testNode,
 		getWorkflowDataProxy: () => ({ $runIndex: 0 }),
@@ -126,12 +128,13 @@ test('2b. a derived key hitting a 409 different-request conflict returns UNKNOWN
 	const { ctx } = makeCtx({ ...base, when: 'now', options: {} }, [integrations, conflict], 'exD');
 	const rows = await executePublish(ctx, 0, {}, at('2026-11-11T10:00:00Z'), noSleep);
 	assert.equal(rows.length, 2);
+	assert.match(String(rows[0].idempotencyKey), /^n8n:[0-9a-f]{12}:[0-9a-f]{12}:exD:PostSider:run0:item:0$/);
 	assert.deepEqual(rows[0], {
 		channelId: 'c1',
 		channelName: 'X',
 		state: 'UNKNOWN',
 		alreadySubmitted: true,
-		idempotencyKey: 'n8n:exD:PostSider:run0:item:0',
+		idempotencyKey: rows[0].idempotencyKey,
 		message: 'This item was already submitted in an earlier attempt of this run. Check the post in PostSider before retrying.',
 	});
 	assert.equal(rows[1].channelId, 'c2');
