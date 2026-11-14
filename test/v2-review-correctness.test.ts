@@ -95,7 +95,7 @@ async function createKey(ids: Record<string, unknown> = {}, run = 0): Promise<st
 
 test('B6. the version 1 Post Create key now includes node name and run index', async () => {
 	const key = await createKey({ executionId: 'ex7' }, 2);
-	assert.match(key, new RegExp(`^n8n:${SCOPE}:ex7:My_Node:run2:item:0$`));
+	assert.match(key, new RegExp(`^n8n:${SCOPE}:ex7:My_Node:[0-9a-f]{12}:run2:item:0$`));
 	assert.match(key, BACKEND_KEY);
 	assert.equal(await createKey({ executionId: 'ex7' }, 2), key);
 	assert.notEqual(await createKey({ executionId: 'ex7', workflowId: 'w2' }, 2), key);
@@ -132,13 +132,17 @@ test('B7. Post Delete returns postId and deleted: true', async () => {
 	assert.deepEqual(shapePostOutput('delete', [{ id: 'g' }], { postId: 'p2' }), [{ postId: 'p2', deleted: true }]);
 });
 
-test('B7. the Delete operation says it deletes every channel version', () => {
+test('B7. the Delete operation says it deletes the post and its thread on one channel', () => {
 	const operation = v2Properties.find(
 		(p) => p.name === 'operation' && (p.displayOptions?.show?.resource as string[])[0] === 'post',
 	);
 	const del = (operation?.options as any[]).find((o) => o.value === 'delete');
-	assert.equal(del.action, 'Delete post and its channel versions');
-	assert.match(del.description, /every channel version/);
+	assert.equal(del.action, 'Delete post');
+	assert.equal(
+		del.description,
+		'Delete the post and its thread on its channel. Posts on other channels from the same Publish are not deleted. This cannot be undone.',
+	);
+	assert.doesNotMatch(JSON.stringify(v2Properties), /every channel version|channel versions/);
 });
 
 // ---- B8: Wait for Result and 429 ----
@@ -231,7 +235,7 @@ test('B10. the Post Get Many state filter offers approval and held posts, sorted
 
 // ---- B11: no scope names in version 2 descriptions ----
 
-test('B11. the AI operations keep the 409 and 402 notes and name no scope', () => {
+test('B11. the AI operations say an AI key is needed, without HTTP codes or scopes', () => {
 	const describe = (resource: string, value: string) => {
 		const operation = v2Properties.find(
 			(p) => p.name === 'operation' && (p.displayOptions?.show?.resource as string[])[0] === resource,
@@ -242,8 +246,8 @@ test('B11. the AI operations keep the 409 and 402 notes and name no scope', () =
 	for (const value of ['check', 'rewrite']) {
 		const text = describe('post', value);
 		assert.doesNotMatch(text, /scope|posts:write/);
-		assert.match(text, /409/);
-		assert.match(text, /402/);
+		assert.match(text, /Needs an AI key in PostSider and uses your AI quota\./);
+		assert.doesNotMatch(text, /409|402/);
 	}
 });
 

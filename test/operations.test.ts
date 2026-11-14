@@ -189,7 +189,7 @@ test('scheduling, approval, and media operations map to bounded public endpoints
 		{
 			method: 'POST',
 			endpoint: '/upload-from-url',
-			input: { body: { url: 'https://cdn.example/photo.png' } },
+			input: { body: { url: 'https://cdn.example/photo.png' }, timeout: 120000 },
 		},
 	);
 	assert.throws(
@@ -296,7 +296,7 @@ test('approval approve and reject send note and expectStage with a stage bound k
 		assert.equal(request.endpoint, `/approvals/appr%2F1/${decision}`);
 		assert.deepEqual(request.input.body, { note: 'Looks good', expectStage: 2 });
 		const key = decisionKey(decision);
-		assert.match(key, /^n8n:exec_9:Approve_Post:item:3:[0-9a-f]{32}$/);
+		assert.match(key, /^n8n:exec_9:Approve_Post:[0-9a-f]{12}:item:3:[0-9a-f]{32}$/);
 		assert.deepEqual(request.input.headers, { 'Idempotency-Key': key });
 	}
 	const noNote = buildOperationRequest(testNode, 'approval', 'approve', { approvalId: 'a1', ...BOUND }, 'e', 0);

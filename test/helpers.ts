@@ -1,10 +1,13 @@
-import type { INode } from 'n8n-workflow';
+import { NodeHelpers, type INode, type INodeProperties } from 'n8n-workflow';
+
+import { PostSider } from '../nodes/PostSider/PostSider.node.ts';
+import { PostSiderTrigger } from '../nodes/PostSiderTrigger/PostSiderTrigger.node.ts';
 
 export const testNode: INode = {
 	id: 'test-node',
 	name: 'PostSider',
 	type: 'n8n-nodes-postsider.postSider',
-	typeVersion: 1,
+	typeVersion: 2.1,
 	position: [0, 0],
 	parameters: {},
 };
@@ -18,6 +21,43 @@ export interface FakeContextOptions {
 	runIndex?: number;
 	continueOnFail?: boolean;
 	itemCount?: number;
+	/** Time zone of the workflow, read by getTimezone(). */
+	timezone?: string;
+	/**
+	 * Pass the parameters through n8n's own display rules for `typeVersion`, like a saved workflow: n8n
+	 * drops every parameter whose property is not displayed. On by default when `params.resource` is set;
+	 * `false` hands the params to the executor as they are.
+	 */
+	model?: boolean;
+	/** Which node's description to model: the PostSider node or the trigger. */
+	nodeKind?: 'postSider' | 'trigger';
+	/** Binary data of the first item: property name to IBinaryData (the id marks filesystem mode). */
+	binary?: Record<string, Record<string, unknown>>;
+	/** Called for getBinaryMetadata(id) and getBinaryDataBuffer. */
+	binaryBuffers?: Record<string, Buffer>;
+}
+
+const descriptions = {
+	postSider: new PostSider().description,
+	trigger: new PostSiderTrigger().description,
+};
+
+/**
+ * What n8n makes of saved parameters for a node version: drop every parameter that is not displayed
+ * (`getNodeParameters` with returnDefaults off, as when a workflow is saved), then fill the defaults of the
+ * displayed ones (as when the node runs). Returns the parameters the executor can read.
+ */
+export function modelNodeParameters(
+	params: Record<string, unknown>,
+	typeVersion: number,
+	kind: 'postSider' | 'trigger' = 'postSider',
+): Record<string, unknown> {
+	const description = descriptions[kind];
+	const node = { ...testNode, typeVersion };
+	const properties = description.properties as INodeProperties[];
+	const saved = NodeHelpers.getNodeParameters(properties, params as never, false, false, node, description);
+	const loaded = NodeHelpers.getNodeParameters(properties, (saved ?? {}) as never, true, false, node, description);
+	return (loaded ?? {}) as Record<string, unknown>;
 }
 
 /**
@@ -34,11 +74,24 @@ export function makeFakeContext(
 	const node = {
 		...testNode,
 		name: options.nodeName ?? testNode.name,
-		typeVersion: options.typeVersion ?? 2,
+		typeVersion: options.typeVersion ?? 2.1,
 	};
+	const modelled =
+		options.model ?? 'resource' in params
+			? modelNodeParameters(params, node.typeVersion, options.nodeKind)
+			: params;
 	const context = {
 		getInputData: () => Array.from({ length: options.itemCount ?? 1 }, () => ({ json: {} })),
-		getNodeParameter: (name: string, _i: number, fallback?: unknown) => params[name] ?? fallback,
+		getNodeParameter: (...args: unknown[]) => {
+			const [name, , fallback] = args as [string, number, unknown];
+			const value = modelled[name];
+			// n8n throws for a parameter that is not set and has no fallback.
+			if (value === undefined && args.length < 3) {
+				throw new Error(`Could not get parameter '${name}'`);
+			}
+			return value ?? fallback;
+		},
+		getTimezone: () => options.timezone ?? 'UTC',
 		getExecutionId: () => options.executionId ?? 'ex1',
 		getWorkflow: () => ({ id: options.workflowId ?? 'wf1', active: false }),
 		getInstanceId: () => options.instanceId ?? 'inst1',
@@ -47,6 +100,17 @@ export function makeFakeContext(
 		getNode: () => node,
 		getWorkflowDataProxy: () => ({ $runIndex: options.runIndex ?? 0 }),
 		helpers: {
+			assertBinaryData: (_i: number, name: string) => {
+				const meta = options.binary?.[name];
+				if (!meta) throw new Error(`no binary '${name}'`);
+				return meta;
+			},
+			getBinaryMetadata: async (id: string) => ({ fileSize: options.binaryBuffers?.[id]?.length ?? 0 }),
+			getBinaryDataBuffer: async (_i: number, name: string) => {
+				const meta = options.binary?.[name] as { id?: string; data?: string } | undefined;
+				if (meta?.id && options.binaryBuffers?.[meta.id]) return options.binaryBuffers[meta.id];
+				return Buffer.from(meta?.data ?? '', 'base64');
+			},
 			httpRequestWithAuthentication: async (_c: string, request: Record<string, unknown>) => {
 				requests.push(request);
 				const next = responses.shift();

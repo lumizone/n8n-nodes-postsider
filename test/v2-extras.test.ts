@@ -241,7 +241,7 @@ test('changeStatus is declared for version 2 with postId and status', () => {
 	const status = fieldsFor('status')[0] as any;
 	assert.equal(status.default, 'schedule');
 	assert.deepEqual(status.options.map((o: any) => o.value).sort(), ['draft', 'schedule']);
-	assert.deepEqual((status.displayOptions.show as any)['@version'], [2]);
+	assert.deepEqual((status.displayOptions.show as any)['@version'], [{ _cnd: { gte: 2.1 } }]);
 });
 
 // ---- C. channel options ----
@@ -279,13 +279,16 @@ test('getOptions fields are version 2 only and use a dynamic tool list', () => {
 		const show = p.displayOptions?.show as any;
 		return show?.resource?.[0] === 'channel' && show.operation?.includes('getOptions');
 	});
-	assert.deepEqual(fields.map((f) => f.name).sort(), ['channelId', 'tool', 'toolData']);
+	assert.deepEqual(fields.map((f) => f.name).sort(), ['channelId', 'getOptionsAdditionalFields', 'tool']);
 	const tool = fields.find((f) => f.name === 'tool') as any;
 	assert.equal(tool.displayName, 'Option List Name or ID');
 	assert.equal(tool.typeOptions.loadOptionsMethod, 'getChannelTools');
 	assert.deepEqual(tool.typeOptions.loadOptionsDependsOn, ['channelId']);
-	for (const f of fields) assert.deepEqual((f.displayOptions?.show as any)['@version'], [2]);
-	const data = fields.find((f) => f.name === 'toolData') as any;
+	for (const f of fields) assert.deepEqual((f.displayOptions?.show as any)['@version'], [{ _cnd: { gte: 2.1 } }]);
+	const extra = fields.find((f) => f.name === 'getOptionsAdditionalFields') as any;
+	assert.equal(extra.type, 'collection');
+	assert.deepEqual(extra.options.map((f: any) => f.name), ['toolData']);
+	const data = extra.options[0];
 	assert.equal(data.options[0].name, 'field');
 	assert.deepEqual(
 		data.options[0].values.map((v: any) => v.name),
@@ -383,7 +386,7 @@ test('executor: Channel Get Options posts the tool call and splits the output', 
 			operation: 'getOptions',
 			channelId: 'c/1',
 			tool: 'boards',
-			toolData: { field: [{ key: 'word', value: 'ai' }] },
+			getOptionsAdditionalFields: { toolData: { field: [{ key: 'word', value: 'ai' }] } },
 		},
 		[{ output: [{ id: 'b1' }, { id: 'b2' }] }],
 	);

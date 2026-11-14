@@ -200,14 +200,15 @@ test('C23. referenced fields are quoted in descriptions and error messages', asy
 	assert.match(String(await failing({ ...base, channels: [], text: 'x' }, [integrations])), /^'Channel Names or IDs' must list/);
 	assert.match(
 		String(await failing({ ...base, text: 'x', mediaSource: 'binary', binaryProperties: ' ' }, [integrations])),
-		/^'Input Binary Field' must list/,
+		/^'Input Data Field Names' must list/,
 	);
 });
 
 // ---- C24 ----
 
 test('C24. List Inputs names its key "Field Name" and keeps the parameter name', () => {
-	const inputs = findV2('toolData');
+	const inputs = findV2('getOptionsAdditionalFields').options[0];
+	assert.equal(inputs.name, 'toolData');
 	const key = inputs.options[0].values[0];
 	assert.equal(key.displayName, 'Field Name');
 	assert.equal(key.name, 'key');
@@ -250,6 +251,8 @@ test('C26. the credential documentation URL points to the authentication page', 
  */
 const TOP_LEVEL_ALLOWLIST: Record<string, string[]> = {
 	'channel.getAnalytics': ['days'],
+	'channel.getMany': ['returnAll'],
+	'group.getMany': ['returnAll'],
 	'media.getMany': ['returnAll'],
 	'media.upload': ['uploadSource'],
 	'post.changeStatus': ['status'],

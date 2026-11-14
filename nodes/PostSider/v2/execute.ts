@@ -2,15 +2,17 @@ import type { IDataObject, IExecuteFunctions, INodeExecutionData } from 'n8n-wor
 import { NodeOperationError } from 'n8n-workflow';
 
 import { continueOnFailJson, toNodeError } from '../shared/errors';
+import { isCurrent } from '../shared/versions';
 
 import { executeOtherOperation } from './otherOperations';
 import { executePostOperation } from './postOperations';
 import { executePublish, type IntegrationCache } from './publish';
 
 /**
- * The operations of node version 2, which are the ones the PostSider API offers. Version 1 still lists
- * more (approval decisions, policies, group changes), so a saved workflow or an expression can reach a
- * removed operation; it is refused here instead of sending a request that has no route.
+ * The operations of node version 2.1, which are the ones the PostSider API offers. Version 2 still runs
+ * more (approval decisions, policies, group changes, as in 0.3.1), so a saved version 2 workflow keeps
+ * working; in version 2.1 an expression can still reach a removed operation, and it is refused here instead
+ * of sending a request that has no route.
  */
 export const V2_OPERATIONS: Record<string, readonly string[]> = {
 	approval: ['getStatus', 'request'],
@@ -56,17 +58,19 @@ const POST_OPERATIONS = new Set([
 
 export async function executeV2(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
 	const items = this.getInputData();
+	const current = isCurrent(this);
 	const returnData: INodeExecutionData[] = [];
 	// One GET /integrations per execution, shared by every item.
 	const integrations: IntegrationCache = {};
 	for (let index = 0; index < items.length; index++) {
 		try {
 			const resource = this.getNodeParameter('resource', index) as string;
-			const operation = this.getNodeParameter('operation', index) as string;
-			if (!V2_OPERATIONS[resource]?.includes(operation)) {
+			// A fallback keeps n8n's generic "Could not get parameter" away when the value was dropped.
+			const operation = this.getNodeParameter('operation', index, '') as string;
+			if (current && !V2_OPERATIONS[resource]?.includes(operation)) {
 				throw new NodeOperationError(
 					this.getNode(),
-					`The operation '${resource} > ${operation}' is not available in this node version`,
+					`The operation '${resource} > ${operation || '(none)'}' is not available in this node version`,
 					{ itemIndex: index },
 				);
 			}

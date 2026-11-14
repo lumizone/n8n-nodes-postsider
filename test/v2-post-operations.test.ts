@@ -208,7 +208,18 @@ test('get output simplifies by default and passes the raw post otherwise', () =>
 			},
 		],
 	};
-	const [simple] = shapePostOutput('get', response, { simplify: true });
+	// 2.1: one flat object with the main post
+	const [flat] = shapePostOutput('get', response, { simplify: true });
+	assert.deepEqual(flat, {
+		id: 'p1',
+		content: 'Hi',
+		state: 'QUEUE',
+		integrationId: 'c1',
+		integrationName: 'N',
+		provider: 'x',
+	});
+	// version 2 keeps the 0.3.1 shape
+	const [simple] = shapePostOutput('get', response, { simplify: true }, false);
 	assert.equal((simple.posts as any[])[0].integrationName, 'N');
 	assert.equal('secret' in (simple.posts as any[])[0], false);
 	const [raw] = shapePostOutput('get', response, { simplify: false });
@@ -252,7 +263,7 @@ test('v2 post operation fields are version 2 only and use plain wording', () => 
 	});
 	assert.ok(fields.length > 10);
 	for (const field of fields) {
-		assert.deepEqual((field.displayOptions?.show as any)['@version'], [2], field.name);
+		assert.deepEqual((field.displayOptions?.show as any)['@version'], [{ _cnd: { gte: 2.1 } }], field.name);
 		assert.equal(/[–—]/.test(JSON.stringify(field)), false, field.name);
 	}
 	const forOp = (op: string) =>

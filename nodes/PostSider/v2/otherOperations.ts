@@ -2,20 +2,19 @@ import type { IDataObject, IExecuteFunctions, INode } from 'n8n-workflow';
 import { NodeOperationError } from 'n8n-workflow';
 
 import { readControlParameters, runControlRequest } from '../shared/approvals';
-import {
-	buildOperationRequest,
-	normalizePostResponse,
-	type OperationRequest,
-} from '../shared/operations';
-import { executionScope } from '../shared/idempotency';
+import { extractList, normalizePostResponse, type OperationRequest } from '../shared/operations';
+import { binaryFieldLabel, isCurrent } from '../shared/versions';
 import { postSiderApiRequest, SLOW_REQUEST_TIMEOUT_MS } from '../shared/transport';
 import { parseIdList, parseUrlList } from './inputs';
 import { uploadBinaries, uploadFromUrls, type ApiCall } from './media';
 
 const DEFAULT_ANALYTICS_DAYS = 7;
+/** Resources that go through the shared (version 1) builders. Version 2 still includes Policy, as in 0.3.1. */
 const CONTROL_RESOURCES = new Set(['approval', 'group']);
+const LEGACY_CONTROL_RESOURCES = new Set(['approval', 'policy', 'group']);
 const MEDIA_LIST_KEYS = ['results', 'media', 'items', 'data'];
 const DEFAULT_MEDIA_LIMIT = 50;
+const DEFAULT_LIST_LIMIT = 50;
 /** Hard cap on the pages fetched for Media > Get Many (50 pages of 18 files). */
 export const MAX_MEDIA_PAGES = 50;
 
@@ -49,7 +48,14 @@ export function buildMediaListRequest(params: IDataObject, page: number): Operat
 }
 
 function buildMediaRequest(node: INode, operation: string, params: IDataObject): OperationRequest {
-	if (operation === 'getMany') return buildMediaListRequest(params, 1);
+	if (operation === 'getMany') {
+		// Version 2 shows one page chosen with 'Page'; version 2.1 reads pages in fetchMediaFiles.
+		const page = has(params.page) && params.page !== '' ? Number(params.page) : 1;
+		if (!Number.isInteger(page) || page < 1) {
+			throw new NodeOperationError(node, "'Page' must be a whole number of 1 or more");
+		}
+		return buildMediaListRequest(params, page);
+	}
 	if (operation === 'delete') {
 		return {
 			method: 'DELETE',
@@ -120,21 +126,16 @@ function buildPublishingRequest(node: INode, operation: string, params: IDataObj
 	throw new NodeOperationError(node, `Unsupported PostSider operation: publishing.${operation}`);
 }
 
-/** Media list, delete, channel tools and publishing state; approval and group reuse the v1 builder. */
+/** Media list, delete, channel tools and publishing state. Approval, Group and Policy use the shared builder. */
 export function buildOtherRequest(
 	node: INode,
 	resource: string,
 	operation: string,
 	params: IDataObject,
-	executionId: string,
-	itemIndex: number,
 ): OperationRequest {
 	if (resource === 'media') return buildMediaRequest(node, operation, params);
 	if (resource === 'channel') return buildChannelRequest(node, operation, params);
 	if (resource === 'publishing') return buildPublishingRequest(node, operation, params);
-	if (CONTROL_RESOURCES.has(resource)) {
-		return buildOperationRequest(node, resource, operation, params, executionId, itemIndex);
-	}
 	throw new NodeOperationError(node, `Unsupported PostSider operation: ${resource}.${operation}`);
 }
 
@@ -145,11 +146,31 @@ function asObject(value: unknown): IDataObject {
 	return value as IDataObject;
 }
 
+/** The Limit of a list, or undefined when Return All is on or the version has no Limit. */
+export function listLimit(node: INode, params: IDataObject): number | undefined {
+	if (params.returnAll || !has(params.limit) || params.limit === '') return undefined;
+	const limit = Number(params.limit);
+	if (!Number.isInteger(limit) || limit < 1) {
+		throw new NodeOperationError(node, "'Limit' must be a whole number of 1 or more");
+	}
+	return limit;
+}
+
+function sliceTo<T>(rows: T[], params: IDataObject): T[] {
+	const limit = has(params.limit) && !params.returnAll ? Number(params.limit) : undefined;
+	return limit !== undefined && Number.isInteger(limit) && limit >= 1 ? rows.slice(0, limit) : rows;
+}
+
+/**
+ * `current` is false for node version 2, which keeps the output of 0.3.1. From 2.1 on, Get Many of
+ * channels and groups honour Return All and Limit, and an empty analytics answer is one item `{ data: [] }`.
+ */
 export function shapeOtherOutput(
 	resource: string,
 	operation: string,
 	response: unknown,
 	params: IDataObject,
+	current = true,
 ): IDataObject[] {
 	if (resource === 'media' && operation === 'delete') {
 		return [{ id: String(params.mediaId ?? ''), deleted: true }];
@@ -176,7 +197,15 @@ export function shapeOtherOutput(
 		const keep = params.includeDisabled
 			? normalized
 			: normalized.filter((channel) => !(channel as { disabled?: unknown } | null)?.disabled);
-		return keep.map(asObject);
+		return sliceTo(keep, params).map(asObject);
+	}
+	if (resource === 'group' && operation === 'getMany' && Array.isArray(normalized)) {
+		return sliceTo(normalized, params).map(asObject);
+	}
+	// Only node version 2 can reach Policy; it keeps the output of 0.3.1.
+	if (resource === 'policy' && operation === 'getMany') return extractList(normalized).map(asObject);
+	if (current && resource === 'channel' && operation === 'getAnalytics' && Array.isArray(normalized)) {
+		return normalized.length === 0 ? [{ data: [] }] : normalized.map(asObject);
 	}
 	if (Array.isArray(normalized)) return normalized.map(asObject);
 	return [asObject(normalized)];
@@ -230,20 +259,28 @@ async function executeUpload(ctx: IExecuteFunctions, index: number): Promise<IDa
 		}
 		media = await uploadFromUrls(node, api, urls);
 	} else {
-		const names = parseIdList(
-			node,
-			ctx.getNodeParameter('uploadBinaryProperties', index, 'data'),
-			'Input Binary Field',
-		);
-		media = await uploadBinaries(ctx, api, index, names);
+		const label = binaryFieldLabel(isCurrent(ctx));
+		const names = parseIdList(node, ctx.getNodeParameter('uploadBinaryProperties', index, 'data'), label);
+		media = await uploadBinaries(ctx, api, index, names, label);
 	}
 	return media as unknown as IDataObject[];
 }
 
-function readParams(ctx: IExecuteFunctions, index: number, resource: string, operation: string): IDataObject {
+/**
+ * Reads the parameters of an operation. Version 2.1 keeps optional fields in collections ('Filters',
+ * 'Additional Fields'); version 2 reads them from the top level, where 0.3.1 declared them.
+ */
+function readParams(
+	ctx: IExecuteFunctions,
+	index: number,
+	resource: string,
+	operation: string,
+	current: boolean,
+): IDataObject {
 	const get = (name: string, fallback?: unknown) => ctx.getNodeParameter(name, index, fallback);
 	if (resource === 'media') {
 		if (operation === 'getMany') {
+			if (!current) return { page: get('page', 1), search: get('search', '') } as IDataObject;
 			const filters = get('mediaFilters', {}) as IDataObject;
 			return {
 				returnAll: get('returnAll', false),
@@ -255,22 +292,29 @@ function readParams(ctx: IExecuteFunctions, index: number, resource: string, ope
 	}
 	if (resource === 'channel') {
 		if (operation === 'getMany') {
+			if (!current) {
+				return { groupId: get('groupId', ''), includeDisabled: get('includeDisabled', false) } as IDataObject;
+			}
 			const filters = get('channelFilters', {}) as IDataObject;
 			return {
 				groupId: filters.groupId ?? '',
 				includeDisabled: filters.includeDisabled ?? false,
+				returnAll: get('returnAll', false),
+				limit: get('limit', DEFAULT_LIST_LIMIT),
 			} as IDataObject;
 		}
 		if (operation === 'getOptions') {
+			const extra = current ? (get('getOptionsAdditionalFields', {}) as IDataObject) : undefined;
 			return {
 				channelId: get('channelId', ''),
 				tool: get('tool', ''),
-				toolData: get('toolData', {}),
+				toolData: extra ? (extra.toolData ?? {}) : get('toolData', {}),
 			} as IDataObject;
 		}
 		return { channelId: get('channelId', ''), days: get('days', DEFAULT_ANALYTICS_DAYS) } as IDataObject;
 	}
 	if (resource === 'publishing') {
+		if (!current) return { reason: get('reason', '') } as IDataObject;
 		const extra = get('pauseAdditionalFields', {}) as IDataObject;
 		return { reason: extra.reason ?? '' } as IDataObject;
 	}
@@ -284,18 +328,25 @@ export async function executeOtherOperation(
 	operation: string,
 ): Promise<IDataObject[]> {
 	const node = ctx.getNode();
+	const current = isCurrent(ctx);
 	if (resource === 'media' && operation === 'upload') return executeUpload(ctx, index);
-	if (CONTROL_RESOURCES.has(resource)) {
+	if ((current ? CONTROL_RESOURCES : LEGACY_CONTROL_RESOURCES).has(resource)) {
 		const params = readControlParameters(ctx, resource, operation, index) ?? {};
+		if (current && resource === 'group' && operation === 'getMany') {
+			params.returnAll = ctx.getNodeParameter('returnAll', index, false) as boolean;
+			params.limit = ctx.getNodeParameter('limit', index, DEFAULT_LIST_LIMIT) as number;
+			listLimit(node, params);
+		}
 		const response = await runControlRequest(ctx, resource, operation, params, index);
-		return shapeOtherOutput(resource, operation, response, params);
+		return shapeOtherOutput(resource, operation, response, params, current);
 	}
-	const params = readParams(ctx, index, resource, operation);
-	if (resource === 'media' && operation === 'getMany') {
+	const params = readParams(ctx, index, resource, operation, current);
+	if (current && resource === 'channel' && operation === 'getMany') listLimit(node, params);
+	if (current && resource === 'media' && operation === 'getMany') {
 		const files = await fetchMediaFiles(ctx, params);
-		return shapeOtherOutput(resource, operation, files, params);
+		return shapeOtherOutput(resource, operation, files, params, current);
 	}
-	const request = buildOtherRequest(node, resource, operation, params, executionScope(ctx), index);
+	const request = buildOtherRequest(node, resource, operation, params);
 	const response = await postSiderApiRequest.call(ctx, request.method, request.endpoint, request.input);
-	return shapeOtherOutput(resource, operation, response, params);
+	return shapeOtherOutput(resource, operation, response, params, current);
 }

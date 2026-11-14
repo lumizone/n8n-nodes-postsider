@@ -7,6 +7,7 @@ import type { INodeProperties } from 'n8n-workflow';
 import { PostSider } from '../nodes/PostSider/PostSider.node.ts';
 import { fieldProperties, operationProperties, resourceProperty } from '../nodes/PostSider/resources/descriptions.ts';
 import { v2Properties } from '../nodes/PostSider/v2/descriptions.ts';
+import { v20Properties } from '../nodes/PostSider/v2/descriptions.v20.ts';
 import { V2_OPERATIONS } from '../nodes/PostSider/v2/execute.ts';
 
 const { description } = new PostSider();
@@ -20,9 +21,9 @@ const v2Operation = (resource: string) =>
 const optionValues = (property: INodeProperties) =>
 	(property.options ?? []).map((option) => ('value' in option ? option.value : null));
 
-test('node declares versions 1 and 2 with default 2', () => {
-	assert.deepEqual(description.version, [1, 2]);
-	assert.equal(description.defaultVersion, 2);
+test('node declares versions 1, 2 and 2.1 with default 2.1', () => {
+	assert.deepEqual(description.version, [1, 2, 2.1]);
+	assert.equal(description.defaultVersion, 2.1);
 });
 
 test('every v1 property is hidden on version 2', () => {
@@ -44,15 +45,22 @@ test('every v1 property is hidden on version 2', () => {
 	assert.deepEqual(byName.url, ['resource', 'operation']);
 });
 
-test('every v2 property is shown only on version 2', () => {
+test('every v2.1 property is shown only from version 2.1, every frozen one only on version 2', () => {
 	assert.ok(v2Properties.length > 0);
 	for (const property of v2Properties) {
+		assert.deepEqual(property.displayOptions?.show?.['@version'], [{ _cnd: { gte: 2.1 } }], property.name);
+	}
+	assert.ok(v20Properties.length > 0);
+	for (const property of v20Properties) {
 		assert.deepEqual(property.displayOptions?.show?.['@version'], [2], property.name);
 	}
 });
 
-test('node properties list v1 first, then v2', () => {
-	assert.equal(description.properties.length, 1 + 7 + fieldProperties.length + v2Properties.length);
+test('node properties list v1 first, then v2, then v2.1', () => {
+	assert.equal(
+		description.properties.length,
+		1 + 7 + fieldProperties.length + v20Properties.length + v2Properties.length,
+	);
 	assert.equal(description.properties[0], resourceProperty);
 });
 
@@ -141,7 +149,7 @@ test('v2 post resource defaults to publish and publish defaults to now', () => {
 
 test('publish fields are wired to the publish operation only', () => {
 	const find = (name: string) => v2Properties.find((property) => property.name === name);
-	const publish = { '@version': [2], resource: ['post'], operation: ['publish'] };
+	const publish = { '@version': [{ _cnd: { gte: 2.1 } }], resource: ['post'], operation: ['publish'] };
 	for (const name of ['channels', 'text', 'when', 'mediaSource', 'options']) {
 		assert.deepEqual(find(name)?.displayOptions?.show, publish, name);
 	}

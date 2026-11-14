@@ -29,8 +29,8 @@ test('A1. Channel Get Many keeps Group and Include Disabled in a Filters collect
 	assert.equal(group.displayName, 'Group Name or ID');
 	assert.equal(group.typeOptions.loadOptionsMethod, 'getGroups');
 	assert.deepEqual(
-		topLevel('channel', 'getMany').map((p) => p.name),
-		['channelFilters'],
+		topLevel('channel', 'getMany').map((p) => p.name).sort(),
+		['channelFilters', 'limit', 'returnAll'],
 	);
 	// no top-level v2 groupId or includeDisabled shown for the channel resource
 	for (const property of v2Properties) {
@@ -195,11 +195,18 @@ test('A4. the executor reads the Options collection', async () => {
 
 test('A5. the trigger asks for Trigger On and keeps channels in Options', () => {
 	const { properties } = new PostSiderTrigger().description;
-	const events = properties.find((p) => p.name === 'events') as any;
+	const events = properties.find(
+		(p) => p.name === 'events' && JSON.stringify(p.displayOptions?.show?.['@version']).includes('_cnd'),
+	) as any;
 	assert.equal(events.displayName, 'Trigger On');
 	assert.equal(events.required, true);
 	assert.equal(events.description, undefined);
-	assert.equal(properties.find((p) => p.name === 'channels'), undefined);
+	// version 1 keeps the 0.3.1 top-level fields, shown for version 1 only
+	const v1Events = properties.find((p) => p.name === 'events' && !p.displayOptions?.show?.['@version']?.some?.((v: any) => v?._cnd)) as any;
+	assert.equal(v1Events.displayName, 'Events');
+	assert.equal(v1Events.description, 'Which post events start the workflow');
+	assert.deepEqual(v1Events.displayOptions.show['@version'], [1]);
+	assert.deepEqual(properties.find((p) => p.name === 'channels')?.displayOptions?.show?.['@version'], [1]);
 	const options = properties.find((p) => p.name === 'options') as any;
 	assert.equal(options.type, 'collection');
 	assert.equal(options.placeholder, 'Add Option');
@@ -218,7 +225,7 @@ test('A5. poll filters by the channels in Options', async () => {
 		getWorkflowStaticData: () => ({}),
 		getMode: () => 'manual',
 		getCredentials: async () => ({ baseUrl: 'https://api.postsider.com' }),
-		getNode: () => ({ name: 'PostSider Trigger' }),
+		getNode: () => ({ name: 'PostSider Trigger', typeVersion: 1.1 }),
 		helpers: {
 			httpRequestWithAuthentication: async () => ({ posts }),
 			returnJsonArray: (items: unknown[]) => items.map((json) => ({ json })),

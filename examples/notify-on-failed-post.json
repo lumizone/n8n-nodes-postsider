@@ -18,7 +18,7 @@
       "id": "failed-trigger",
       "name": "PostSider Trigger",
       "type": "n8n-nodes-postsider.postSiderTrigger",
-      "typeVersion": 1,
+      "typeVersion": 1.1,
       "position": [
         0,
         0

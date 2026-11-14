@@ -120,11 +120,14 @@ test('2a. the cache holds at most 500 entries and evicts the oldest', async () =
 	assert.equal(newest.requests[1].body.date, '2026-11-11T10:00:00.000Z', 'ev500 still cached');
 });
 
-test('2b. a derived key hitting a 409 different-request conflict returns UNKNOWN rows', async () => {
+test('2b. a derived key hitting a 409 different-request conflict returns UNKNOWN rows after an earlier attempt', async () => {
 	resetPublishCache();
-	const conflict = Object.assign(new Error('Idempotency-Key already used with a different request'), {
+	const conflict = Object.assign(new Error('Idempotency-Key was already used with a different request'), {
 		statusCode: 409,
 	});
+	// An earlier attempt of this run (it failed with a server error) is remembered for the derived key.
+	const first = makeCtx({ ...base, when: 'now', options: {} }, [integrations, Object.assign(new Error('down'), { statusCode: 503 })], 'exD');
+	await assert.rejects(() => executePublish(first.ctx, 0, {}, at('2026-11-11T10:00:00Z'), noSleep));
 	const { ctx } = makeCtx({ ...base, when: 'now', options: {} }, [integrations, conflict], 'exD');
 	const rows = await executePublish(ctx, 0, {}, at('2026-11-11T10:00:00Z'), noSleep);
 	assert.equal(rows.length, 2);
@@ -140,16 +143,74 @@ test('2b. a derived key hitting a 409 different-request conflict returns UNKNOWN
 	assert.equal(rows[1].channelId, 'c2');
 });
 
-test('2b. a user-supplied key or another 409 stays an error', async () => {
+test('2b. a 409 without an earlier attempt, with a supplied key, or another 409 stays an error', async () => {
 	resetPublishCache();
-	const conflict = Object.assign(new Error('Idempotency-Key already used with a different request'), {
-		statusCode: 409,
-	});
-	const supplied = makeCtx({ ...base, when: 'now', options: { idempotencyKey: 'mine' } }, [integrations, conflict], 'exE');
-	await assert.rejects(() => executePublish(supplied.ctx, 0, {}, at('2026-11-11T10:00:00Z'), noSleep), /different request/);
+	const conflict = () =>
+		Object.assign(new Error('Idempotency-Key was already used with a different request'), { statusCode: 409 });
+	// A derived key that this process never used: a different post took the key, so it is an error.
+	const fresh = makeCtx({ ...base, when: 'now', options: {} }, [integrations, conflict()], 'exG');
+	await assert.rejects(
+		() => executePublish(fresh.ctx, 0, {}, at('2026-11-11T10:00:00Z'), noSleep),
+		(error: any) =>
+			error instanceof NodeApiError &&
+			/already used for a different post/.test(error.message) &&
+			/set a unique 'Idempotency Key'/i.test(String(error.description)),
+	);
+	const supplied = makeCtx({ ...base, when: 'now', options: { idempotencyKey: 'mine' } }, [integrations, conflict()], 'exE');
+	await assert.rejects(() => executePublish(supplied.ctx, 0, {}, at('2026-11-11T10:00:00Z'), noSleep), /different post/);
 	const other = Object.assign(new Error('Something else conflicts'), { statusCode: 409 });
 	const derived = makeCtx({ ...base, when: 'now', options: {} }, [integrations, other], 'exF');
 	await assert.rejects(() => executePublish(derived.ctx, 0, {}, at('2026-11-11T10:00:00Z'), noSleep), /Something else/);
+});
+
+test('2c. an already-processing 409 after an earlier attempt waits, resends and returns the replayed result', async () => {
+	resetPublishCache();
+	const processing = () =>
+		Object.assign(new Error('A request with this Idempotency-Key is already processing'), { statusCode: 409 });
+	const first = makeCtx({ ...base, when: 'now', options: {} }, [integrations, Object.assign(new Error('down'), { statusCode: 503 })], 'exH');
+	await assert.rejects(() => executePublish(first.ctx, 0, {}, at('2026-11-11T10:00:00Z'), noSleep));
+	const waits: number[] = [];
+	const created = [
+		{ postId: 'p1', integration: 'c1' },
+		{ postId: 'p2', integration: 'c2' },
+	];
+	const { ctx, requests } = makeCtx(
+		{ ...base, when: 'now', options: {} },
+		[integrations, processing(), processing(), created],
+		'exH',
+	);
+	const rows = await executePublish(ctx, 0, {}, at('2026-11-11T10:00:00Z'), async (ms: number) => {
+		waits.push(ms);
+	});
+	assert.deepEqual(waits, [5000, 5000]);
+	assert.equal(rows.length, 2);
+	assert.equal(rows[0].postId, 'p1');
+	const posts = requests.filter((r) => r.method === 'POST');
+	assert.equal(posts.length, 3);
+	assert.deepEqual(posts[0].body, posts[2].body);
+});
+
+test('2c. an already-processing 409 that does not end gives UNKNOWN rows; without an earlier attempt it is an error', async () => {
+	resetPublishCache();
+	const processing = () =>
+		Object.assign(new Error('A request with this Idempotency-Key is already processing'), { statusCode: 409 });
+	const first = makeCtx({ ...base, when: 'now', options: {} }, [integrations, Object.assign(new Error('down'), { statusCode: 503 })], 'exI');
+	await assert.rejects(() => executePublish(first.ctx, 0, {}, at('2026-11-11T10:00:00Z'), noSleep));
+	const waits: number[] = [];
+	const again = makeCtx(
+		{ ...base, when: 'now', options: {} },
+		[integrations, processing(), processing(), processing(), processing()],
+		'exI',
+	);
+	const rows = await executePublish(again.ctx, 0, {}, at('2026-11-11T10:00:00Z'), async (ms: number) => {
+		waits.push(ms);
+	});
+	assert.deepEqual(waits, [5000, 5000, 5000]);
+	assert.equal(rows[0].state, 'UNKNOWN');
+	assert.equal(rows[0].alreadySubmitted, true);
+	resetPublishCache();
+	const fresh = makeCtx({ ...base, when: 'now', options: {} }, [integrations, processing()], 'exJ');
+	await assert.rejects(() => executePublish(fresh.ctx, 0, {}, at('2026-11-11T10:00:00Z'), noSleep), /already processing/);
 });
 
 test('3. getMany sends the group filter as customer', () => {

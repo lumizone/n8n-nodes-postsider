@@ -35,7 +35,7 @@
       "id": "create-draft",
       "name": "Create Draft",
       "type": "n8n-nodes-postsider.postSider",
-      "typeVersion": 2,
+      "typeVersion": 2.1,
       "position": [260, 0],
       "credentials": {
         "postSiderApi": {

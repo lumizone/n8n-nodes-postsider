@@ -1,4 +1,4 @@
-import { normalizePostResponse, simplifyPostResponse } from '../PostSider/shared/operations';
+import { normalizePostResponse, simplifyPostFlat, simplifyPostResponse } from '../PostSider/shared/operations';
 
 const DAY = 24 * 3_600_000;
 const SEEN_LIMIT = 10000;
@@ -44,8 +44,12 @@ function matches(post: Record<string, unknown>, events: string[], channels: stri
 	return event;
 }
 
-function toItem(post: Record<string, unknown>, event: string): Record<string, unknown> {
-	const item: Record<string, unknown> = { ...simplifyPostResponse(post), event };
+/** Version 1.1 emits the flat post of node version 2.1 plus `event`; version 1 keeps the longer shape. */
+function toItem(post: Record<string, unknown>, event: string, flat: boolean): Record<string, unknown> {
+	const item: Record<string, unknown> = {
+		...(flat ? simplifyPostFlat(post) : simplifyPostResponse(post)),
+		event,
+	};
 	for (const key of ['error', 'errorCode', 'errorCategory', 'errorRetryable']) {
 		if (Object.prototype.hasOwnProperty.call(post, key)) item[key] = post[key];
 	}
@@ -62,6 +66,7 @@ export function selectNewPosts(
 	events: string[],
 	channels: string[],
 	seen: string[] | undefined,
+	flat = true,
 ): { emit: Record<string, unknown>[]; seen: string[] } {
 	const rows = posts.map(asRecord).filter((row): row is Record<string, unknown> => !!row && row.id !== undefined);
 	const previous = new Set(seen ?? []);
@@ -73,7 +78,7 @@ export function selectNewPosts(
 		current.add(key);
 		if (seen === undefined || previous.has(key)) continue;
 		const event = matches(row, events, channels);
-		if (event) emit.push(toItem(row, event));
+		if (event) emit.push(toItem(row, event, flat));
 	}
 	return { emit, seen: [...current].slice(-SEEN_LIMIT) };
 }
@@ -83,6 +88,7 @@ export function newestMatching(
 	posts: unknown[],
 	events: string[],
 	channels: string[],
+	flat = true,
 ): Record<string, unknown>[] {
 	let best: { row: Record<string, unknown>; event: string; time: number } | undefined;
 	for (const raw of posts) {
@@ -93,5 +99,5 @@ export function newestMatching(
 		const time = new Date(String(row.publishDate)).getTime() || 0;
 		if (!best || time > best.time) best = { row, event, time };
 	}
-	return best ? [toItem(best.row, best.event)] : [];
+	return best ? [toItem(best.row, best.event, flat)] : [];
 }

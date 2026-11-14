@@ -22,16 +22,39 @@ function recorder(calls: Call[]) {
 	}) as never;
 }
 
-function fakeCtx(binaries: Record<string, { buffer: Buffer; mimeType: string; fileName?: string }>) {
+interface FakeBinary {
+	buffer: Buffer;
+	mimeType: string;
+	fileName?: string;
+	/** Filesystem or S3 mode: the property holds an `id` and the size comes from getBinaryMetadata. */
+	stored?: boolean;
+	/** Size reported by getBinaryMetadata when it differs from the buffer (avoids allocating 500 MB). */
+	size?: number;
+}
+
+/** Records the order of metadata reads, buffer loads and uploads in `log`. */
+function fakeCtx(binaries: Record<string, FakeBinary>, log: string[] = []) {
 	return {
 		getNode: () => testNode,
 		helpers: {
 			assertBinaryData: (_i: number, name: string) => {
 				const b = binaries[name];
 				if (!b) throw new NodeOperationError(testNode, `No binary data property "${name}"`);
-				return { mimeType: b.mimeType, fileName: b.fileName, data: '' };
+				return {
+					mimeType: b.mimeType,
+					fileName: b.fileName,
+					...(b.stored ? { data: 'filesystem-v2', id: `id-${name}` } : { data: b.buffer.toString('base64') }),
+				};
 			},
-			getBinaryDataBuffer: async (_i: number, name: string) => binaries[name].buffer,
+			getBinaryMetadata: async (id: string) => {
+				const name = id.replace(/^id-/, '');
+				log.push(`size:${name}`);
+				return { fileSize: binaries[name].size ?? binaries[name].buffer.length };
+			},
+			getBinaryDataBuffer: async (_i: number, name: string) => {
+				log.push(`load:${name}`);
+				return binaries[name].buffer;
+			},
 		},
 	} as unknown as IExecuteFunctions;
 }
@@ -155,8 +178,9 @@ test('uploadBinaries refuses an image over 10 MB and names the file and the limi
 
 test('uploadBinaries refuses a video over 500 MB and uses the property name when the file has no name', async () => {
 	const calls: Call[] = [];
-	// only the length is read before the error, so a stand-in avoids allocating 500 MB
-	const ctx = fakeCtx({ clip: { buffer: { length: 500 * MB + 1 } as Buffer, mimeType: 'video/mp4' } });
+	// stored files are sized from the metadata, so nothing is loaded and no 500 MB buffer is needed
+	const log: string[] = [];
+	const ctx = fakeCtx({ clip: { buffer: Buffer.alloc(0), size: 500 * MB + 1, stored: true, mimeType: 'video/mp4' } }, log);
 	await assert.rejects(
 		uploadBinaries(ctx, recorder(calls), 0, ['clip']),
 		(error: Error) => {
@@ -166,6 +190,7 @@ test('uploadBinaries refuses a video over 500 MB and uses the property name when
 		},
 	);
 	assert.equal(calls.length, 0);
+	assert.deepEqual(log, ['size:clip'], 'the file was never loaded');
 });
 
 test('uploadBinaries checks every file before it uploads the first one', async () => {
@@ -176,6 +201,54 @@ test('uploadBinaries checks every file before it uploads the first one', async (
 	});
 	await assert.rejects(uploadBinaries(ctx, recorder(calls), 0, ['small', 'big']), /'big\.png'/);
 	assert.equal(calls.length, 0, 'the small file was not uploaded either');
+});
+
+test('uploadBinaries checks all sizes from the metadata first, then loads each file right before its upload', async () => {
+	const log: string[] = [];
+	const upload = (async (_m: string, endpoint: string) => {
+		log.push(`upload:${endpoint}`);
+		return { id: `m${log.length}`, path: 'https://cdn.example/x.png' };
+	}) as never;
+	const ctx = fakeCtx(
+		{
+			a: { buffer: Buffer.from('aa'), mimeType: 'image/png', fileName: 'a.png', stored: true },
+			b: { buffer: Buffer.from('bbb'), mimeType: 'image/png', fileName: 'b.png' },
+		},
+		log,
+	);
+	await uploadBinaries(ctx, upload, 0, ['a', 'b']);
+	assert.deepEqual(log, ['size:a', 'load:a', 'upload:/upload-base64', 'load:b', 'upload:/upload-base64']);
+});
+
+test('in-memory binaries are sized from their base64 text, padding included', async () => {
+	// 10 MB + 1 byte as base64 has one '=' of padding; just under 10 MB also has padding and is accepted
+	const over = Buffer.alloc(10 * MB + 1, 1);
+	assert.ok(over.toString('base64').endsWith('='));
+	await assert.rejects(
+		uploadBinaries(fakeCtx({ x: { buffer: over, mimeType: 'image/png', fileName: 'x.png' } }), recorder([]), 0, ['x']),
+		/Images can be up to 10 MB/,
+	);
+	const exact = Buffer.alloc(10 * MB - 2, 1);
+	assert.ok(exact.toString('base64').endsWith('='));
+	const calls: Call[] = [];
+	await uploadBinaries(fakeCtx({ x: { buffer: exact, mimeType: 'image/png', fileName: 'x.png' } }), recorder(calls), 0, ['x']);
+	assert.equal(calls.length, 1);
+});
+
+test('the URL list is not split inside a URL that holds a comma', () => {
+	const cloudinary = 'https://res.cloudinary.com/x/image/upload/w_800,h_600/a.jpg';
+	assert.deepEqual(parseUrlList(testNode, cloudinary), [cloudinary]);
+	assert.deepEqual(parseUrlList(testNode, `${cloudinary}\nhttps://b.example/y.png`), [cloudinary, 'https://b.example/y.png']);
+	assert.deepEqual(parseUrlList(testNode, `${cloudinary}, https://b.example/y.png`), [cloudinary, 'https://b.example/y.png']);
+	assert.deepEqual(parseUrlList(testNode, `["${cloudinary}"]`), [cloudinary]);
+});
+
+test('an invalid media URL is named in the error, without its credentials', () => {
+	assert.throws(() => parseUrlList(testNode, 'https://a.example/x.png\nhttp://b.example/y.png'), /This one is not: http:\/\/b\.example\/y\.png/);
+	assert.throws(
+		() => parseUrlList(testNode, 'https://user:secret@h.example/x.png'),
+		(error: Error) => /This one is not: https:\/\/h\.example\/x\.png/.test(error.message) && !error.message.includes('secret'),
+	);
 });
 
 test('uploadBinaries leaves other file types to the server', async () => {

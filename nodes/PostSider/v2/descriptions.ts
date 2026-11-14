@@ -1,6 +1,7 @@
 import type { INodeProperties } from 'n8n-workflow';
 
-const V2 = { '@version': [2] };
+/** Version 2.1 and later. Version 2 keeps the frozen 0.3.1 parameters in descriptions.v20.ts. */
+const V2 = { '@version': [{ _cnd: { gte: 2.1 } }] };
 
 type OperationOption = { name: string; value: string; action: string; description: string };
 
@@ -148,21 +149,21 @@ const operationProperties: INodeProperties[] = [
 				value: 'changeStatus',
 				action: 'Move post between draft and queue',
 				description:
-					"'Schedule' queues a draft for its saved date, 'Draft' takes a queued post out of the queue",
+					"'Schedule' queues a draft for its saved date. 'Draft' takes a queued post out of the queue. Returns the post ID and its new state.",
 			},
 			{
 				name: 'Check',
 				value: 'check',
 				action: 'Check post before publishing',
 				description:
-					'Validate post text against channel rules without creating the post. Fails with 409 when no AI key is configured and 402 when the AI quota is used up.',
+					'Validate post text against channel rules without creating the post. Needs an AI key in PostSider and uses your AI quota.',
 			},
 			{
 				name: 'Delete',
 				value: 'delete',
-				action: 'Delete post and its channel versions',
+				action: 'Delete post',
 				description:
-					'Delete the post and every channel version created with it. This cannot be undone.',
+					'Delete the post and its thread on its channel. Posts on other channels from the same Publish are not deleted. This cannot be undone.',
 			},
 			{
 				name: 'Duplicate',
@@ -174,7 +175,7 @@ const operationProperties: INodeProperties[] = [
 				name: 'Get',
 				value: 'get',
 				action: 'Get post',
-				description: 'Retrieve a post and its channel versions',
+				description: 'Retrieve a post and its thread (follow-up posts)',
 			},
 			{
 				name: 'Get Analytics',
@@ -207,7 +208,7 @@ const operationProperties: INodeProperties[] = [
 				value: 'rewrite',
 				action: 'Rewrite post for channel',
 				description:
-					'Rewrite post text to fit the rules and style of a channel. Fails with 409 when no AI key is configured and 402 when the AI quota is used up.',
+					'Rewrite post text to fit the rules and style of a channel. Needs an AI key in PostSider and uses your AI quota.',
 			},
 			{
 				name: 'Update',
@@ -410,7 +411,12 @@ const publishFields: INodeProperties[] = [
 		type: 'options',
 		options: [
 			{ name: 'Draft', value: 'draft', description: 'Save without publishing' },
-			{ name: 'Next Free Slot', value: 'nextSlot', description: 'Place in the next free queue slot' },
+			{
+				name: 'Next Free Slot',
+				value: 'nextSlot',
+				description:
+					'Place in the next free queue slot. The slot of the first selected channel is used for all channels.',
+			},
 			{ name: 'Now', value: 'now', description: 'Publish immediately' },
 			{ name: 'Schedule', value: 'schedule', description: 'Publish at a given date and time' },
 		],
@@ -424,7 +430,8 @@ const publishFields: INodeProperties[] = [
 		type: 'dateTime',
 		required: true,
 		default: '',
-		description: 'UTC date and time at which PostSider should publish the post',
+		description:
+			'Date and time at which PostSider should publish the post. In the workflow time zone when no time zone is given.',
 		displayOptions: { show: { ...publishOnly, when: ['schedule'] } },
 	},
 	{
@@ -442,12 +449,12 @@ const publishFields: INodeProperties[] = [
 		displayOptions: { show: publishOnly },
 	},
 	{
-		displayName: 'Input Binary Field',
+		displayName: 'Input Data Field Names',
 		name: 'binaryProperties',
 		type: 'string',
 		default: 'data',
 		placeholder: 'e.g. data, data2',
-		description: 'Comma-separated names of the binary properties that hold the files to upload',
+		description: 'Comma-separated names of the input fields that hold the files',
 		displayOptions: { show: { ...publishOnly, mediaSource: ['binary'] } },
 	},
 	{
@@ -696,7 +703,7 @@ const postOperationFields: INodeProperties[] = [
 		],
 		default: 'schedule',
 		description:
-			"'Schedule' queues a draft for its saved date. 'Draft' takes a queued post out of the queue. The response may include the policy result and whether approval was requested.",
+			"'Schedule' queues a draft for its saved date. 'Draft' takes a queued post out of the queue.",
 		displayOptions: { show: postOp('changeStatus') },
 	},
 	{
@@ -718,7 +725,7 @@ const postOperationFields: INodeProperties[] = [
 		type: 'dateTime',
 		required: true,
 		default: '',
-		description: 'Return posts from this UTC date and time',
+		description: 'Return posts from this date and time. In the workflow time zone when no time zone is given.',
 		displayOptions: { show: { ...postOp('getMany'), range: ['custom'] } },
 	},
 	{
@@ -727,7 +734,7 @@ const postOperationFields: INodeProperties[] = [
 		type: 'dateTime',
 		required: true,
 		default: '',
-		description: 'Return posts up to this UTC date and time',
+		description: 'Return posts up to this date and time. In the workflow time zone when no time zone is given.',
 		displayOptions: { show: { ...postOp('getMany'), range: ['custom'] } },
 	},
 	{
@@ -795,6 +802,7 @@ const postOperationFields: INodeProperties[] = [
 		displayName: 'Days',
 		name: 'days',
 		type: 'number',
+		required: true,
 		typeOptions: { minValue: 1 },
 		default: 7,
 		description: 'How many days of analytics to return',
@@ -814,7 +822,7 @@ const postOperationFields: INodeProperties[] = [
 				name: 'date',
 				type: 'dateTime',
 				default: '',
-				description: 'New UTC publish date and time',
+				description: 'New publish date and time. In the workflow time zone when no time zone is given.',
 			},
 			{
 				displayName: 'First Comment',
@@ -859,12 +867,12 @@ const postOperationFields: INodeProperties[] = [
 		displayOptions: { show: updateOnly },
 	},
 	{
-		displayName: 'Input Binary Field',
+		displayName: 'Input Data Field Names',
 		name: 'updateBinaryProperties',
 		type: 'string',
 		default: 'data',
 		placeholder: 'e.g. data, data2',
-		description: 'Comma-separated names of the binary properties that hold the files to upload',
+		description: 'Comma-separated names of the input fields that hold the files',
 		displayOptions: { show: { ...updateOnly, updateMediaSource: ['binary'] } },
 	},
 	{
@@ -907,7 +915,7 @@ const postOperationFields: INodeProperties[] = [
 				name: 'date',
 				type: 'dateTime',
 				default: '',
-				description: 'UTC date and time to set on the copy',
+				description: 'Date and time to set on the copy. In the workflow time zone when no time zone is given.',
 			},
 		],
 	},
@@ -1031,12 +1039,12 @@ const otherFields: INodeProperties[] = [
 		displayOptions: { show: show('media', 'upload') },
 	},
 	{
-		displayName: 'Input Binary Field',
+		displayName: 'Input Data Field Names',
 		name: 'uploadBinaryProperties',
 		type: 'string',
 		default: 'data',
 		placeholder: 'e.g. data, data2',
-		description: 'Comma-separated names of the binary properties that hold the files to upload',
+		description: 'Comma-separated names of the input fields that hold the files',
 		displayOptions: { show: { ...show('media', 'upload'), uploadSource: ['binary'] } },
 	},
 	{
@@ -1093,6 +1101,25 @@ const otherFields: INodeProperties[] = [
 		],
 	},
 	{
+		displayName: 'Return All',
+		name: 'returnAll',
+		type: 'boolean',
+		default: false,
+		description: 'Whether to return all results or only up to a given limit',
+		displayOptions: { show: { ...V2, resource: ['channel', 'group'], operation: ['getMany'] } },
+	},
+	{
+		displayName: 'Limit',
+		name: 'limit',
+		type: 'number',
+		typeOptions: { minValue: 1 },
+		default: 50,
+		description: 'Max number of results to return',
+		displayOptions: {
+			show: { ...V2, resource: ['channel', 'group'], operation: ['getMany'], returnAll: [false] },
+		},
+	},
+	{
 		displayName: 'Filters',
 		name: 'channelFilters',
 		type: 'collection',
@@ -1143,32 +1170,41 @@ const otherFields: INodeProperties[] = [
 		displayOptions: { show: show('channel', 'getOptions') },
 	},
 	{
-		displayName: 'List Inputs',
-		name: 'toolData',
-		type: 'fixedCollection',
-		typeOptions: { multipleValues: true },
-		placeholder: 'Add Input',
+		displayName: 'Additional Fields',
+		name: 'getOptionsAdditionalFields',
+		type: 'collection',
+		placeholder: 'Add Field',
 		default: {},
-		description: 'Inputs some lists need, such as a search word',
 		displayOptions: { show: show('channel', 'getOptions') },
 		options: [
 			{
-				name: 'field',
-				displayName: 'Input',
-				values: [
+				displayName: 'List Inputs',
+				name: 'toolData',
+				type: 'fixedCollection',
+				typeOptions: { multipleValues: true },
+				placeholder: 'Add Input',
+				default: {},
+				description: 'Inputs some lists need, such as a search word',
+				options: [
 					{
-						displayName: 'Field Name',
-						name: 'key',
-						type: 'string',
-						default: '',
-						description: 'Input name, for example word',
-					},
-					{
-						displayName: 'Value',
-						name: 'value',
-						type: 'string',
-						default: '',
-						description: 'Input value',
+						name: 'field',
+						displayName: 'Input',
+						values: [
+							{
+								displayName: 'Field Name',
+								name: 'key',
+								type: 'string',
+								default: '',
+								description: 'Input name, for example word',
+							},
+							{
+								displayName: 'Value',
+								name: 'value',
+								type: 'string',
+								default: '',
+								description: 'Input value',
+							},
+						],
 					},
 				],
 			},
@@ -1178,6 +1214,7 @@ const otherFields: INodeProperties[] = [
 		displayName: 'Days',
 		name: 'days',
 		type: 'number',
+		required: true,
 		typeOptions: { minValue: 1 },
 		default: 7,
 		description: 'How many days of analytics to return',

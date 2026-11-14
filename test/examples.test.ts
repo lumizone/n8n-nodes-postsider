@@ -4,7 +4,7 @@ import { readdirSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 
-import type { INodeProperties, INodePropertyCollection, INodePropertyOptions } from 'n8n-workflow';
+import { NodeHelpers, type INodeProperties, type INodePropertyCollection, type INodePropertyOptions } from 'n8n-workflow';
 
 import { PostSider } from '../nodes/PostSider/PostSider.node.ts';
 import { V2_OPERATIONS } from '../nodes/PostSider/v2/execute.ts';
@@ -43,6 +43,14 @@ test('every file in examples/ is covered by these tests', () => {
 
 type Show = Record<string, unknown[]>;
 
+/** `@version` conditions are a version, or `{ _cnd: { gte } }` for a version and later. */
+function versionAllowed(allowed: unknown[], version: number): boolean {
+	return allowed.some((entry) => {
+		const gte = (entry as { _cnd?: { gte?: number } } | null)?._cnd?.gte;
+		return gte === undefined ? entry === version : version >= gte;
+	});
+}
+
 const isObject = (value: unknown): value is Record<string, unknown> =>
 	typeof value === 'object' && value !== null && !Array.isArray(value);
 
@@ -54,7 +62,11 @@ const isObject = (value: unknown): value is Record<string, unknown> =>
 function isVisible(property: INodeProperties, node: ExampleNode): boolean {
 	const show = (property.displayOptions?.show ?? {}) as Show;
 	for (const [key, allowed] of Object.entries(show)) {
-		const actual = key === '@version' ? node.typeVersion : node.parameters[key];
+		if (key === '@version') {
+			if (!versionAllowed(allowed, node.typeVersion)) return false;
+			continue;
+		}
+		const actual = node.parameters[key];
 		if (actual === undefined) {
 			// not set in the example: the node uses the default of the controlling property
 			const controlling = key === '@version' ? undefined : defaultOf(key, node);
@@ -78,7 +90,7 @@ function defaultOf(name: string, node: ExampleNode): unknown {
 	for (const property of candidates) {
 		const show = (property.displayOptions?.show ?? {}) as Show;
 		const version = show['@version'];
-		if (version && !version.includes(node.typeVersion)) continue;
+		if (version && !versionAllowed(version, node.typeVersion)) continue;
 		return property.default;
 	}
 	return undefined;
@@ -182,7 +194,7 @@ test('the validator rejects an unknown parameter and a field outside its collect
 	const base: ExampleNode = {
 		name: 'Probe',
 		type: POSTSIDER,
-		typeVersion: 2,
+		typeVersion: 2.1,
 		parameters: { resource: 'channel', operation: 'getMany' },
 	};
 	assert.throws(() => validateNodeParameters({ ...base, parameters: { ...base.parameters, status: 'PENDING' } }));
@@ -204,7 +216,7 @@ test('the validator rejects an unknown parameter and a field outside its collect
 	);
 });
 
-test('every version 2 example node uses an operation that version 2 offers', () => {
+test('every example node uses an operation that version 2.1 offers', () => {
 	for (const workflow of allWorkflows) {
 		for (const node of nodesOf(workflow)) {
 			if (node.type !== POSTSIDER) continue;
@@ -215,11 +227,32 @@ test('every version 2 example node uses an operation that version 2 offers', () 
 	}
 });
 
-test('every PostSider node uses version 2 and the trigger uses version 1', () => {
+test('every PostSider node uses version 2.1 and the trigger uses version 1.1', () => {
 	for (const workflow of allWorkflows) {
 		for (const node of nodesOf(workflow)) {
-			if (node.type === POSTSIDER) assert.equal(node.typeVersion, 2, node.name);
-			if (node.type === TRIGGER) assert.equal(node.typeVersion, 1, node.name);
+			if (node.type === POSTSIDER) assert.equal(node.typeVersion, 2.1, node.name);
+			if (node.type === TRIGGER) assert.equal(node.typeVersion, 1.1, node.name);
+		}
+	}
+});
+
+test('n8n keeps every top-level parameter of every example node (none is dropped as not displayed)', () => {
+	for (const workflow of allWorkflows) {
+		for (const node of nodesOf(workflow)) {
+			if (node.type !== POSTSIDER && node.type !== TRIGGER) continue;
+			const description = (node.type === POSTSIDER ? new PostSider() : new PostSiderTrigger()).description;
+			const kept = NodeHelpers.getNodeParameters(
+				description.properties,
+				node.parameters as never,
+				true,
+				false,
+				{ typeVersion: node.typeVersion, parameters: node.parameters } as never,
+				description,
+			) as Record<string, unknown>;
+			for (const name of Object.keys(node.parameters)) {
+				if (name === 'pollTimes') continue;
+				assert.ok(name in kept, `${node.name}: n8n would drop '${name}'`);
+			}
 		}
 	}
 });

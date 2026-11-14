@@ -13,6 +13,7 @@ import { readControlParameters, runControlRequest } from './shared/approvals';
 import { continueOnFailJson, toNodeError } from './shared/errors';
 import { extractList, normalizePostResponse, simplifyPostResponse } from './shared/operations';
 import { v2Properties } from './v2/descriptions';
+import { v20Properties } from './v2/descriptions.v20';
 import { executeV2 } from './v2/execute';
 
 function getParameters(context: IExecuteFunctions, resource: string, operation: string, index: number) {
@@ -99,8 +100,8 @@ export class PostSider implements INodeType {
 		name: 'postSider',
 		icon: { light: 'file:postsider.svg', dark: 'file:postsider.dark.svg' },
 		group: ['output'],
-		version: [1, 2],
-		defaultVersion: 2,
+		version: [1, 2, 2.1],
+		defaultVersion: 2.1,
 		subtitle: '={{$parameter["operation"] + ": " + $parameter["resource"]}}',
 		description: 'Prepare, schedule, and review social media posts with PostSider',
 		defaults: { name: 'PostSider' },
@@ -108,7 +109,13 @@ export class PostSider implements INodeType {
 		outputs: [NodeConnectionTypes.Main],
 		usableAsTool: true,
 		credentials: [{ name: 'postSiderApi', required: true }],
-		properties: [resourceProperty, ...operationProperties, ...fieldProperties, ...v2Properties],
+		properties: [
+			resourceProperty,
+			...operationProperties,
+			...fieldProperties,
+			...v20Properties,
+			...v2Properties,
+		],
 	};
 
 	methods = {

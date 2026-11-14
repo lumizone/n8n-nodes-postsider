@@ -4,9 +4,11 @@ import { NodeOperationError } from 'n8n-workflow';
 import { normalizeScheduledDate, parseJsonObject } from '../shared/payloads';
 import {
 	normalizePostResponse,
+	simplifyPostFlat,
 	simplifyPostResponse,
 	type OperationRequest,
 } from '../shared/operations';
+import { binaryFieldLabel, dateZone, isCurrent } from '../shared/versions';
 import { postSiderApiRequest, SLOW_REQUEST_TIMEOUT_MS } from '../shared/transport';
 import { parseIdList, parseMediaJson, parseUrlList } from './inputs';
 import { uploadBinaries, uploadFromUrls, type ApiCall } from './media';
@@ -33,6 +35,11 @@ function encodedId(node: INode, params: IDataObject, name: string, displayName: 
 	return encodeURIComponent(required(node, params, name, displayName));
 }
 
+/** The time zone for dates without one, set by the executor from node version 2.1 on. */
+function zoneOf(params: IDataObject): string | undefined {
+	return typeof params.timezone === 'string' && params.timezone ? params.timezone : undefined;
+}
+
 function listRange(node: INode, params: IDataObject, now: Date): IDataObject {
 	const range = String(params.range ?? 'next7');
 	let start: string;
@@ -46,8 +53,8 @@ function listRange(node: INode, params: IDataObject, now: Date): IDataObject {
 		if (!from || !to) {
 			throw new NodeOperationError(node, "Custom range needs both 'Start Date' and 'End Date'");
 		}
-		start = normalizeScheduledDate(node, from, 'Start Date');
-		end = normalizeScheduledDate(node, to, 'End Date');
+		start = normalizeScheduledDate(node, from, 'Start Date', zoneOf(params));
+		end = normalizeScheduledDate(node, to, 'End Date', zoneOf(params));
 	} else {
 		start = now.toISOString();
 		end = new Date(now.getTime() + 7 * DAY_MS).toISOString();
@@ -66,7 +73,7 @@ function buildUpdateBody(node: INode, params: IDataObject): IDataObject {
 	const body: IDataObject = {};
 	if (has(params.text)) body.content = String(params.text);
 	if (has(params.date) && String(params.date).trim() !== '') {
-		body.date = normalizeScheduledDate(node, String(params.date).trim(), 'Date');
+		body.date = normalizeScheduledDate(node, String(params.date).trim(), 'Date', zoneOf(params));
 	}
 	if (has(params.firstComment)) {
 		const comment = String(params.firstComment);
@@ -160,7 +167,7 @@ export function buildPostRequest(
 			const channelId = String(params.channelId ?? '').trim();
 			if (channelId) body.channelId = channelId;
 			const date = String(params.date ?? '').trim();
-			if (date) body.date = normalizeScheduledDate(node, date, 'Date');
+			if (date) body.date = normalizeScheduledDate(node, date, 'Date', zoneOf(params));
 			return {
 				method: 'POST',
 				endpoint: `/posts/${encodedId(node, params, 'postId', 'Post ID')}/duplicate`,
@@ -179,6 +186,14 @@ export function buildPostRequest(
 			};
 		}
 		case 'retryFailed':
+			// Node version 2 reads the 'Group ID' of 0.3.1 (`postGroup`) and keeps its route.
+			if (params.postGroup !== undefined) {
+				return {
+					method: 'POST',
+					endpoint: `/posts/group/${encodedId(node, params, 'postGroup', 'Group ID')}/retry-failed`,
+					input: { body: {} },
+				};
+			}
 			return {
 				method: 'POST',
 				endpoint: `/posts/${encodedId(node, params, 'postId', 'Post ID')}/retry`,
@@ -253,54 +268,116 @@ export const RETRY_OUTPUT_FIELDS = ['state', 'publishDate', 'releaseURL', 'error
 /**
  * `POST /posts/:id/retry` answers the whole post row, including its channel with the decrypted access and
  * refresh tokens. Only a fixed list of fields is copied, so no credential can reach the node output.
+ * `postId` is the ID of the response, or the requested one when the response has none.
  */
-function shapeRetryOutput(response: unknown): IDataObject[] {
+function shapeRetryOutput(response: unknown, requestedPostId: unknown): IDataObject[] {
 	const row =
 		response && typeof response === 'object' && !Array.isArray(response)
 			? (response as Record<string, unknown>)
 			: {};
 	const pick = (key: string): unknown => (row[key] === undefined ? null : row[key]);
-	const output: IDataObject = { postId: pick('id') as IDataObject[string] };
+	const id = row.id === undefined || row.id === null || row.id === '' ? requestedPostId : row.id;
+	const output: IDataObject = { postId: (id ?? null) as IDataObject[string] };
 	for (const key of RETRY_OUTPUT_FIELDS) output[key] = pick(key) as IDataObject[string];
 	return [output];
 }
 
-export function shapePostOutput(operation: string, response: unknown, params: IDataObject): IDataObject[] {
-	if (operation === 'retryFailed') return shapeRetryOutput(response);
+const SECRET_KEYS = new Set(['token', 'accesstoken', 'refreshtoken', 'access_token', 'refresh_token']);
+
+/** Removes channel tokens from a response, at any depth. No node version may output them. */
+export function withoutSecrets(value: unknown): unknown {
+	if (Array.isArray(value)) return value.map(withoutSecrets);
+	if (!value || typeof value !== 'object') return value;
+	return Object.fromEntries(
+		Object.entries(value)
+			.filter(([key]) => !SECRET_KEYS.has(key.toLowerCase()))
+			.map(([key, entry]) => [key, withoutSecrets(entry)]),
+	);
+}
+
+function timeOf(post: unknown): number {
+	const time = Date.parse(String((post as { publishDate?: unknown } | null)?.publishDate ?? ''));
+	return Number.isNaN(time) ? Number.MAX_SAFE_INTEGER : time;
+}
+
+/**
+ * Production answers `GET /posts` unordered and repeats a recurring post. Sorted by publish date, then ID,
+ * and an exact repeat of ID and publish date dropped.
+ */
+export function sortedUniquePosts(posts: unknown[]): unknown[] {
+	const id = (post: unknown) => String((post as { id?: unknown } | null)?.id ?? '');
+	const seen = new Set<string>();
+	const unique = posts.filter((post) => {
+		const key = `${id(post)}|${String((post as { publishDate?: unknown } | null)?.publishDate ?? '')}`;
+		if (seen.has(key)) return false;
+		seen.add(key);
+		return true;
+	});
+	return unique.sort((a, b) => timeOf(a) - timeOf(b) || id(a).localeCompare(id(b)));
+}
+
+/**
+ * `current` is false for node version 2, which keeps the output of 0.3.1: Retry Failed answers the
+ * response (without channel tokens), Delete answers the response, and a simplified post keeps the longer
+ * shape with its group and image.
+ */
+export function shapePostOutput(
+	operation: string,
+	response: unknown,
+	params: IDataObject,
+	current = true,
+): IDataObject[] {
+	if (operation === 'retryFailed') {
+		if (!current) {
+			const legacy = withoutSecrets(normalizePostResponse(response));
+			return Array.isArray(legacy) ? legacy.map(asObject) : [asObject(legacy)];
+		}
+		return shapeRetryOutput(response, params.postId);
+	}
 	const normalized = normalizePostResponse(response);
 	const simplify = params.simplify === undefined ? true : Boolean(params.simplify);
-	// The backend deletes the whole post group and answers with the group; n8n expects `deleted: true`.
-	if (operation === 'delete') return [{ postId: String(params.postId ?? ''), deleted: true }];
+	// The backend deletes the post group and answers with it; from 2.1 n8n answers `deleted: true`.
+	if (current && operation === 'delete') {
+		return [{ postId: String(params.postId ?? ''), deleted: true }];
+	}
 	if (operation === 'getMany') {
 		const raw =
 			normalized && typeof normalized === 'object' && !Array.isArray(normalized)
 				? (normalized as { posts?: unknown }).posts
 				: normalized;
 		let posts = Array.isArray(raw) ? raw : [];
+		if (current) posts = sortedUniquePosts(posts);
 		if (!params.returnAll) {
 			const limit = Number(params.limit);
 			posts = posts.slice(0, Number.isFinite(limit) && limit >= 1 ? Math.floor(limit) : DEFAULT_LIMIT);
 		}
 		return posts.map((post) =>
 			simplify && post && typeof post === 'object'
-				? (simplifyPostResponse(post as Record<string, unknown>) as IDataObject)
+				? ((current
+						? simplifyPostFlat(post as Record<string, unknown>)
+						: simplifyPostResponse(post as Record<string, unknown>)) as IDataObject)
 				: asObject(post),
 		);
 	}
 	if (operation === 'get' && simplify) {
 		const detail = asObject(normalized);
-		const posts = Array.isArray(detail.posts)
-			? detail.posts.map((post) => simplifyPostResponse(post as Record<string, unknown>))
-			: [];
+		const posts = Array.isArray(detail.posts) ? (detail.posts as Array<Record<string, unknown>>) : [];
+		if (current) {
+			// Flat: the main post (the first one) with its channel; the follow-up posts are left out.
+			return [simplifyPostFlat(posts[0] ?? {}, detail.integration) as IDataObject];
+		}
 		return [
 			{
 				group: detail.group,
 				integration: detail.integration,
 				integrationPicture: detail.integrationPicture,
 				settings: detail.settings,
-				posts,
+				posts: posts.map((post) => simplifyPostResponse(post)),
 			} as IDataObject,
 		];
+	}
+	if (current && operation === 'getAnalytics' && Array.isArray(normalized) && normalized.length === 0) {
+		return [{ data: [] }];
 	}
 	if (Array.isArray(normalized)) return normalized.map(asObject);
 	return [asObject(normalized)];
@@ -316,8 +393,9 @@ export async function executePostOperation(
 	const api: ApiCall = (method, endpoint, input) =>
 		postSiderApiRequest.call(ctx, method, endpoint, input) as never;
 	const get = (name: string, fallback?: unknown) => ctx.getNodeParameter(name, index, fallback);
+	const current = isCurrent(ctx);
 
-	const params: IDataObject = {};
+	const params: IDataObject = { timezone: dateZone(ctx) };
 	switch (operation) {
 		case 'get':
 			params.postId = get('postId', '');
@@ -351,13 +429,19 @@ export async function executePostOperation(
 			break;
 		}
 		case 'retryFailed':
-			params.postId = get('postId', '');
+			if (current) params.postId = get('postId', '');
+			else params.postGroup = get('postGroup', '');
 			break;
 		case 'check': {
-			const options = get('checkOptions', {}) as IDataObject;
 			params.text = get('text', '');
-			params.mediaType = options.mediaType ?? 'none';
 			params.platforms = get('platforms', []);
+			if (current) {
+				const options = get('checkOptions', {}) as IDataObject;
+				params.mediaType = options.mediaType ?? 'none';
+			} else {
+				// Version 2 has 'Has Media' and 'Media Type' as separate fields.
+				params.mediaType = get('hasMedia', false) ? String(get('mediaType', 'image')) : 'none';
+			}
 			break;
 		}
 		case 'rewrite': {
@@ -373,7 +457,7 @@ export async function executePostOperation(
 			params.days = get('days', DEFAULT_ANALYTICS_DAYS);
 			break;
 		case 'update':
-			return executeUpdate(ctx, index, api, params);
+			return executeUpdate(ctx, index, api, params, current);
 		default:
 			throw new NodeOperationError(node, `Unsupported PostSider post operation: ${operation}`, {
 				itemIndex: index,
@@ -381,7 +465,7 @@ export async function executePostOperation(
 	}
 	const request = buildPostRequest(node, operation, params, now());
 	const response = await api<unknown>(request.method, request.endpoint, request.input);
-	return shapePostOutput(operation, response, params);
+	return shapePostOutput(operation, response, params, current);
 }
 
 async function executeUpdate(
@@ -389,6 +473,7 @@ async function executeUpdate(
 	index: number,
 	api: ApiCall,
 	params: IDataObject,
+	current: boolean,
 ): Promise<IDataObject[]> {
 	const node = ctx.getNode();
 	const get = (name: string, fallback?: unknown) => ctx.getNodeParameter(name, index, fallback);
@@ -403,7 +488,7 @@ async function executeUpdate(
 	let binaryNames: string[] = [];
 	let mediaUrls: string[] = [];
 	if (mediaSource === 'binary') {
-		binaryNames = parseIdList(node, get('updateBinaryProperties', 'data'), 'Input Binary Field');
+		binaryNames = parseIdList(node, get('updateBinaryProperties', 'data'), binaryFieldLabel(current));
 		params.images = [];
 	} else if (mediaSource === 'url') {
 		mediaUrls = parseUrlList(node, get('updateMediaUrls', ''));
@@ -450,10 +535,10 @@ async function executeUpdate(
 				: {},
 		);
 	}
-	if (mediaSource === 'binary') params.images = await uploadBinaries(ctx, api, index, binaryNames);
+	if (mediaSource === 'binary') params.images = await uploadBinaries(ctx, api, index, binaryNames, binaryFieldLabel(current));
 	else if (mediaSource === 'url') params.images = await uploadFromUrls(node, api, mediaUrls);
 
 	const request = buildPostRequest(node, 'update', params, new Date());
 	const response = await api<unknown>(request.method, request.endpoint, request.input);
-	return shapePostOutput('update', response, params);
+	return shapePostOutput('update', response, params, current);
 }

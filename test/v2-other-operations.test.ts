@@ -2,16 +2,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import type { IDataObject } from 'n8n-workflow';
 
-import { buildOperationRequest } from '../nodes/PostSider/shared/operations';
 import { v2Properties } from '../nodes/PostSider/v2/descriptions';
 import { executeV2 } from '../nodes/PostSider/v2/execute';
 import { buildMediaListRequest, buildOtherRequest, shapeOtherOutput } from '../nodes/PostSider/v2/otherOperations';
-import { testNode } from './helpers';
+import { makeFakeContext, testNode } from './helpers';
 
 const build = (resource: string, operation: string, params: Record<string, unknown> = {}) =>
-	buildOtherRequest(testNode, resource, operation, params as any, 'ex1', 0);
+	buildOtherRequest(testNode, resource, operation, params as any);
 
 test('media getMany requests page 1 and sends the search term only when set', () => {
 	const r = build('media', 'getMany', {});
@@ -64,17 +62,10 @@ test('publishing getState and pause', () => {
 	assert.deepEqual(build('publishing', 'pause', { reason: ' incident ' }).input.body, { reason: 'incident' });
 });
 
-test('approval and group delegate to the v1 builder; policy has no builder in version 2', () => {
-	assert.deepEqual(
-		build('approval', 'getStatus', { postId: 'p1' }),
-		buildOperationRequest(testNode, 'approval', 'getStatus', { postId: 'p1' }, 'ex1', 0),
-	);
-	assert.deepEqual(
-		build('approval', 'request', { postId: 'p1' }),
-		buildOperationRequest(testNode, 'approval', 'request', { postId: 'p1' }, 'ex1', 0),
-	);
-	assert.deepEqual(build('group', 'getMany'), buildOperationRequest(testNode, 'group', 'getMany', {}, 'ex1', 0));
-	assert.throws(() => build('policy', 'getMany'), /Unsupported/);
+test('approval, group and policy are not built here; they go through the shared builder', () => {
+	for (const [resource, operation] of [['approval', 'getStatus'], ['approval', 'request'], ['group', 'getMany'], ['policy', 'getMany']]) {
+		assert.throws(() => build(resource, operation, { postId: 'p1' }), /Unsupported/, `${resource} > ${operation}`);
+	}
 });
 
 test('unknown operations throw', () => {
@@ -103,7 +94,7 @@ test('v2 declares the fields of every other resource for version 2 only', () => 
 	assert.ok(names('media', 'upload').includes('uploadSource'));
 	assert.ok(names('media', 'delete').includes('mediaId'));
 	assert.deepEqual(names('media', 'getMany').sort(), ['limit', 'mediaFilters', 'returnAll']);
-	assert.deepEqual(names('channel', 'getMany'), ['channelFilters']);
+	assert.deepEqual(names('channel', 'getMany').sort(), ['channelFilters', 'limit', 'returnAll']);
 	for (const op of ['getRules', 'findNextSlot', 'enable', 'disable']) {
 		assert.deepEqual(names('channel', op), ['channelId'], op);
 	}
@@ -111,7 +102,7 @@ test('v2 declares the fields of every other resource for version 2 only', () => 
 	assert.deepEqual(names('publishing', 'pause'), ['pauseAdditionalFields']);
 	assert.deepEqual(names('approval', 'request'), ['postId']);
 	assert.deepEqual(names('approval', 'getStatus'), ['postId']);
-	assert.deepEqual(names('group', 'getMany'), []);
+	assert.deepEqual(names('group', 'getMany').sort(), ['limit', 'returnAll']);
 	const channelFilters = v2Properties.find((p) => p.name === 'channelFilters');
 	const groupId = (channelFilters?.options as any[]).find((o) => o.name === 'groupId');
 	assert.equal(groupId?.typeOptions?.loadOptionsMethod, 'getGroups');
@@ -120,27 +111,13 @@ test('v2 declares the fields of every other resource for version 2 only', () => 
 // ---- executor ----
 
 function makeContext(params: Record<string, unknown>, responses: unknown[], extra: Record<string, unknown> = {}) {
-	const requests: Array<Record<string, any>> = [];
-	const context = {
-		getInputData: () => [{ json: {}, binary: (extra.binary as any) ?? {} }],
-		getNodeParameter: (name: string, _i: number, fallback?: unknown) => params[name] ?? fallback,
-		getExecutionId: () => 'ex1',
-		getWorkflow: () => ({ id: 'wf1', active: false }),
-		getInstanceId: () => 'inst1',
-		getCredentials: async () => ({ apiKey: 'k', baseUrl: 'https://api.postsider.com' }),
-		continueOnFail: () => false,
-		getNode: () => ({ ...testNode, typeVersion: 2 }),
-		helpers: {
-			httpRequestWithAuthentication: async (_c: string, options: Record<string, unknown>) => {
-				requests.push(options);
-				return responses.shift();
-			},
-			assertBinaryData: () => ({ fileName: 'a.png', mimeType: 'image/png' }),
-			getBinaryDataBuffer: async () => Buffer.from('abc'),
-			returnJsonArray: (d: IDataObject | IDataObject[]) => (Array.isArray(d) ? d : [d]).map((json) => ({ json })),
-			constructExecutionMetaData: (d: any[], m: any) => d.map((e) => ({ ...e, pairedItem: m.itemData })),
+	// The context models n8n: parameters that are not displayed for the node version are dropped.
+	const { context, requests } = makeFakeContext(params, responses, {
+		binary: (extra.binary as any) ?? {
+			data: { fileName: 'a.png', mimeType: 'image/png', data: Buffer.from('abc').toString('base64') },
 		},
-	} as any;
+		typeVersion: (extra.typeVersion as number | undefined) ?? 2.1,
+	});
 	return { context, requests };
 }
 
@@ -208,9 +185,11 @@ test('executor: operations that were removed from version 2 are refused before a
 		['nothing', 'getMany'],
 	]) {
 		const { context, requests } = makeContext({ resource, operation }, []);
+		// n8n drops the saved operation of Policy (version 2.1 has no such resource), so it reads as empty.
+		const shown = ['policy', 'nothing'].includes(resource) ? '\\(none\\)' : operation;
 		await assert.rejects(
 			() => executeV2.call(context),
-			new RegExp(`The operation '${resource} > ${operation}' is not available in this node version`),
+			new RegExp(`The operation '${resource} > ${shown}' is not available in this node version`),
 			`${resource} > ${operation}`,
 		);
 		assert.equal(requests.length, 0, `${resource} > ${operation}`);
@@ -221,7 +200,7 @@ test('executor: a refused operation is reported per item with continueOnFail', a
 	const { context } = makeContext({ resource: 'policy', operation: 'check' }, []);
 	context.continueOnFail = () => true;
 	const out = await executeV2.call(context);
-	assert.match(String(out[0][0].json.error), /'policy > check' is not available in this node version/);
+	assert.match(String(out[0][0].json.error), /'policy > \(none\)' is not available in this node version/);
 });
 
 test('executor: publishing pause posts the reason', async () => {

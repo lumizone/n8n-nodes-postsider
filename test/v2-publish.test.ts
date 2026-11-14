@@ -145,7 +145,7 @@ test('default idempotency key is n8n:<execution>:<node>:run<run>:item:<index>', 
 		defaultIdempotencyKey(other, '', 'e42', 3, 0),
 	]);
 	assert.equal(keys.size, 3);
-	assert.equal(defaultIdempotencyKey(other, '', 'e42', 3, 1), 'n8n:e42:Publish__2__b_:run1:item:3');
+	assert.match(defaultIdempotencyKey(other, '', 'e42', 3, 1), /^n8n:e42:Publish__2__b_:[0-9a-f]{12}:run1:item:3$/);
 	assert.throws(() => defaultIdempotencyKey(testNode, 'bad key!', 'e42', 3), /Idempotency Key/);
 });
 
